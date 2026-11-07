@@ -18,6 +18,15 @@ export const UNKNOWN_COMMAND_MESSAGE =
 export const TEXT_ONLY_MESSAGE =
   "Please send a text description of the image you'd like to create.";
 
+function escapeTelegramHtml(value) {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+function formatFullPrompt(prompt) {
+  return `📝 Full Prompt
+<blockquote expandable>${escapeTelegramHtml(prompt)}</blockquote>`;
+}
+
 function formatSettings(settings, seed) {
   return `⚙️ Generation Settings
 Model: ${settings.model}
@@ -31,9 +40,11 @@ Seed: ${seed}`;
 export function creatingMessage({ prompt, seed }, settings) {
   return `🎨 Creating your image...
 
-📝 Prompt: ${prompt}
+${formatFullPrompt(prompt)}
 
 ${formatSettings(settings, seed)}
+
+⏱ Your image should be ready in about 45 seconds.
 
 ⏳ Generating...`;
 }
@@ -41,7 +52,7 @@ ${formatSettings(settings, seed)}
 export function queuedMessage({ prompt, seed }, settings, position) {
   return `🎨 Your request is queued.
 
-📝 Prompt: ${prompt}
+${formatFullPrompt(prompt)}
 
 ${formatSettings(settings, seed)}
 
@@ -52,7 +63,7 @@ export function completedMessage({ prompt, seed }, settings, durationMs) {
   const durationSeconds = (durationMs / 1000).toFixed(1);
   return `✅ Your image is ready!
 
-📝 Prompt: ${prompt}
+${formatFullPrompt(prompt)}
 
 ${formatSettings(settings, seed)}
 

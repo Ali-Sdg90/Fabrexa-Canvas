@@ -1,17 +1,24 @@
 import { generateSeed } from "../utils/seed.js";
 
 export class GenerationService {
-  constructor({ promptService, comfyUiService, seedGenerator = generateSeed, now = Date.now }) {
+  constructor({
+    promptService,
+    comfyUiService,
+    seedGenerator = generateSeed,
+    fixedSeed = null,
+    now = Date.now,
+  }) {
     this.promptService = promptService;
     this.comfyUiService = comfyUiService;
     this.seedGenerator = seedGenerator;
+    this.fixedSeed = fixedSeed;
     this.now = now;
   }
 
   prepareRequest(rawPrompt) {
     return Object.freeze({
       prompt: this.promptService.prepare(rawPrompt),
-      seed: this.seedGenerator(),
+      seed: this.fixedSeed ?? this.seedGenerator(),
     });
   }
 

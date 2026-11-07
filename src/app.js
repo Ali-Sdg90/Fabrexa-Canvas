@@ -29,7 +29,11 @@ async function main() {
   const activityLogService = new ActivityLogService({ ...config.activityLog, logger });
   const promptService = new PromptService(config.prompt);
   const generationQueue = new GenerationQueue({ ...config.queue, logger });
-  const generationService = new GenerationService({ promptService, comfyUiService });
+  const generationService = new GenerationService({
+    promptService,
+    comfyUiService,
+    fixedSeed: config.seed.fixed,
+  });
 
   try {
     await activityLogService.initialize();

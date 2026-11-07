@@ -16,6 +16,7 @@ async function safelyEditStatus(context, statusMessage, text, logger) {
       statusMessage.message_id,
       undefined,
       text,
+      { parse_mode: "HTML" },
     );
   } catch (error) {
     logger.warn("Could not edit Telegram generation status.", {
@@ -96,6 +97,7 @@ export function createImageHandler({
           const stopChatAction = startChatAction({
             telegram: context.telegram,
             chatId,
+            action: "typing",
             intervalMs: actionIntervalMs,
             logger,
           });
@@ -111,7 +113,7 @@ export function createImageHandler({
       const initialText = queueEntry.queued
         ? queuedMessage(request, generationSettings, queueEntry.position)
         : creatingMessage(request, generationSettings);
-      statusMessage = await context.reply(initialText);
+      statusMessage = await context.reply(initialText, { parse_mode: "HTML" });
       releaseQueueTask(true);
     } catch (error) {
       releaseQueueTask?.(false);
@@ -157,6 +159,14 @@ export function createImageHandler({
         caption: MEDIA_ATTRIBUTION_HTML,
         parse_mode: "HTML",
       };
+      try {
+        await context.telegram.sendChatAction(chatId, "upload_photo");
+      } catch (error) {
+        logger.warn("Could not set Telegram photo-upload activity.", {
+          error,
+          chatId,
+        });
+      }
       await context.replyWithPhoto({ source: result.buffer }, mediaCaption);
       logger.info("Generated image delivered to Telegram as a photo.", {
         chatId,

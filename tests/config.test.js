@@ -33,6 +33,7 @@ test("loadConfig validates and normalizes a complete environment", () => {
     { nodeId: "91", inputName: "noise_seed" },
   ]);
   assert.equal(config.activityLog.timeZone, "Asia/Tehran");
+  assert.equal(config.seed.fixed, null);
   assert.equal(path.basename(config.activityLog.filePath), "activity-log.json");
   assert.equal(config.generation.width, 832);
   assert.equal(config.generation.height, 1152);
@@ -67,5 +68,17 @@ test("loadConfig rejects malformed additional seed mappings", () => {
   assert.throws(
     () => loadConfig(validEnvironment({ COMFYUI_ADDITIONAL_SEED_MAPPINGS: "79" })),
     (error) => error instanceof ConfigError && /nodeId:inputName/.test(error.message),
+  );
+});
+
+test("loadConfig accepts an optional fixed generation seed", () => {
+  const config = loadConfig(validEnvironment({ GENERATION_SEED: "451905041881905" }));
+  assert.equal(config.seed.fixed, 451905041881905);
+});
+
+test("loadConfig rejects an invalid fixed generation seed", () => {
+  assert.throws(
+    () => loadConfig(validEnvironment({ GENERATION_SEED: "-1" })),
+    (error) => error instanceof ConfigError && /GENERATION_SEED/.test(error.message),
   );
 });

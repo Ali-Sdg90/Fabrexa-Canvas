@@ -31,6 +31,24 @@ function parseInteger(environment, name, fallback, { min = 1, max = Number.MAX_S
   return value;
 }
 
+function parseOptionalSeed(environment) {
+  const rawValue = environment.GENERATION_SEED?.trim();
+  if (!rawValue) {
+    return null;
+  }
+  if (!/^\d+$/.test(rawValue)) {
+    throw new ConfigError("GENERATION_SEED must be a non-negative whole number or left blank.");
+  }
+
+  const value = Number(rawValue);
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new ConfigError(
+      `GENERATION_SEED must be between 0 and ${Number.MAX_SAFE_INTEGER}, or left blank.`,
+    );
+  }
+  return value;
+}
+
 function parseTelegramUserId(environment) {
   const value = requireString(environment, "ALLOWED_TELEGRAM_USER_ID");
   if (!/^\d+$/.test(value) || value === "0") {
@@ -149,6 +167,9 @@ export function loadConfig(environment = process.env, { cwd = process.cwd() } = 
     }),
     queue: Object.freeze({
       maxSize: parseInteger(environment, "GENERATION_QUEUE_MAX_SIZE", 5, { min: 1, max: 25 }),
+    }),
+    seed: Object.freeze({
+      fixed: parseOptionalSeed(environment),
     }),
     prompt: Object.freeze({
       maxLength: parseInteger(environment, "PROMPT_MAX_LENGTH", 1500, { min: 1, max: 3500 }),

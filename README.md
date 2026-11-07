@@ -17,7 +17,7 @@ polling, keeps ComfyUI on localhost, and does not create duplicate image files.
 - ComfyUI completion, failure, and timeout detection
 - Telegram photo delivery with a linked Fabrexa Canvas attribution
 - Local JSON activity history for starts, prompts, and generated filenames
-- Periodic `upload_photo` chat activity while ComfyUI is working
+- Periodic `typing` activity while ComfyUI is working
 - Graceful polling shutdown and structured diagnostic logs
 - Automated tests that do not need Telegram, ComfyUI, or a GPU
 
@@ -162,6 +162,7 @@ Copy `.env.example` to `.env`, then fill in the blank values.
 | `COMFYUI_POLL_INTERVAL_MS` | No | History polling interval; default `2000` |
 | `COMFYUI_TIMEOUT_MS` | No | Whole-generation timeout; default `240000` |
 | `COMFYUI_REQUEST_TIMEOUT_MS` | No | Individual HTTP timeout; default `10000` |
+| `GENERATION_SEED` | No | Fixed seed for every mapped seed input; leave blank for a new random seed per request |
 | `GENERATION_QUEUE_MAX_SIZE` | No | Active plus waiting jobs; default `5` |
 | `PROMPT_MAX_LENGTH` | No | Maximum prompt characters; default `1500` |
 | `ACTIVITY_LOG_PATH` | No | Local JSON activity file; default `./data/activity-log.json` |
@@ -170,6 +171,10 @@ Copy `.env.example` to `.env`, then fill in the blank values.
 
 `COMFYUI_BASE_URL` accepts only loopback hosts (`127.0.0.1`, `localhost`, or
 `::1`). Keep ComfyUI bound to localhost.
+
+Leave `GENERATION_SEED` blank for normal random generation. When it contains a
+non-negative whole number, that exact value is used for the primary sampler and
+every entry in `COMFYUI_ADDITIONAL_SEED_MAPPINGS`.
 
 ## Run the bot
 
@@ -208,10 +213,12 @@ Fabrexa Canvas:
 ...
 ```
 
-While a job is active, Telegram displays the photo-upload activity. When it
-finishes, the bot keeps the completed prompt, settings, seed, and duration in
-the status message, adds a short delivery notice, and sends only the photo. Its
-caption contains only the linked Fabrexa Canvas attribution.
+While ComfyUI is generating, Telegram displays `typing`. The complete
+prompt appears inside a collapsed expandable blockquote. When generation
+finishes, the bot keeps the prompt, settings, seed, and duration in the status
+message, adds a short delivery notice, switches to `upload_photo`, and sends
+only the image. Its caption contains only the linked Fabrexa Canvas
+attribution.
 
 ## Activity history
 
@@ -229,10 +236,10 @@ committed. If `ACTIVITY_LOG_PATH` is changed, add the custom path to
 
 The SaveImage node remains active, so ComfyUI writes the original PNG to its
 existing configured output directory. Fabrexa Canvas retrieves that same output
-through `GET /view` into memory and sends it to Telegram. It does not create a
-project copy, move the original, or use the Windows Downloads folder. The same
-in-memory PNG is used for the Telegram photo while ComfyUI keeps the original
-in its configured output directory.
+through `GET /view` into memory and sends it to Telegram as a photo. It does not
+create a project copy, move the original, or use the Windows Downloads folder.
+ComfyUI keeps the authoritative original PNG in its configured output
+directory.
 
 ## Quality checks
 
