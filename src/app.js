@@ -1,0 +1,68 @@
+import "dotenv/config";
+
+import { createBot } from "./bot/bot.js";
+import { loadConfig } from "./config/index.js";
+import { ComfyUIService } from "./services/comfyui.service.js";
+import { GenerationQueue } from "./services/generation-queue.service.js";
+import { GenerationService } from "./services/generation.service.js";
+import { PromptService } from "./services/prompt.service.js";
+import { createLogger } from "./utils/logger.js";
+
+async function main() {
+  let config;
+  let logger = createLogger();
+
+  try {
+    config = loadConfig();
+    logger = createLogger({
+      ...config.logging,
+      redactions: [config.telegram.botToken],
+    });
+  } catch (error) {
+    logger.error("Configuration validation failed.", { error });
+    process.exitCode = 1;
+    return;
+  }
+
+  const comfyUiService = new ComfyUIService(config.comfyUi, logger);
+  const promptService = new PromptService(config.prompt);
+  const generationQueue = new GenerationQueue({ ...config.queue, logger });
+  const generationService = new GenerationService({ promptService, comfyUiService });
+
+  try {
+    await comfyUiService.initialize();
+  } catch (error) {
+    logger.error("Fabrexa Canvas could not start.", { error });
+    process.exitCode = 1;
+    return;
+  }
+
+  const bot = createBot({ config, generationService, generationQueue, logger });
+  let stopping = false;
+
+  const stop = (signal) => {
+    if (stopping) {
+      return;
+    }
+    stopping = true;
+    generationQueue.close();
+    logger.info("Stopping Fabrexa Canvas.", { signal });
+    bot.stop(signal);
+  };
+
+  process.once("SIGINT", () => stop("SIGINT"));
+  process.once("SIGTERM", () => stop("SIGTERM"));
+  process.on("unhandledRejection", (error) => {
+    logger.error("Unhandled promise rejection.", { error });
+  });
+
+  try {
+    await bot.launch({ allowedUpdates: ["message"] });
+    logger.info("Fabrexa Canvas is running with Telegram long polling.");
+  } catch (error) {
+    logger.error("Telegram polling could not start.", { error });
+    process.exitCode = 1;
+  }
+}
+
+await main();
