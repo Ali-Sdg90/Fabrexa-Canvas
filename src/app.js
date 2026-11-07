@@ -2,6 +2,7 @@ import "dotenv/config";
 
 import { createBot } from "./bot/bot.js";
 import { loadConfig } from "./config/index.js";
+import { ActivityLogService } from "./services/activity-log.service.js";
 import { ComfyUIService } from "./services/comfyui.service.js";
 import { GenerationQueue } from "./services/generation-queue.service.js";
 import { GenerationService } from "./services/generation.service.js";
@@ -25,11 +26,13 @@ async function main() {
   }
 
   const comfyUiService = new ComfyUIService(config.comfyUi, logger);
+  const activityLogService = new ActivityLogService({ ...config.activityLog, logger });
   const promptService = new PromptService(config.prompt);
   const generationQueue = new GenerationQueue({ ...config.queue, logger });
   const generationService = new GenerationService({ promptService, comfyUiService });
 
   try {
+    await activityLogService.initialize();
     await comfyUiService.initialize();
   } catch (error) {
     logger.error("Fabrexa Canvas could not start.", { error });
@@ -37,7 +40,13 @@ async function main() {
     return;
   }
 
-  const bot = createBot({ config, generationService, generationQueue, logger });
+  const bot = createBot({
+    config,
+    generationService,
+    generationQueue,
+    activityLogService,
+    logger,
+  });
   let stopping = false;
 
   const stop = (signal) => {

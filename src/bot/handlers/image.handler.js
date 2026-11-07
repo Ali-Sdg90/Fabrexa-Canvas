@@ -1,6 +1,7 @@
 import { startChatAction } from "../chat-action.js";
+import { telegramChatIdFromContext, telegramUserFromContext } from "../../utils/telegram-user.js";
 import {
-  IMAGE_CAPTION,
+  MEDIA_ATTRIBUTION_HTML,
   UNKNOWN_COMMAND_MESSAGE,
   completedMessage,
   creatingMessage,
@@ -31,6 +32,7 @@ export function createImageHandler({
   generationSettings,
   promptMaxLength,
   actionIntervalMs,
+  activityLogService,
   logger,
 }) {
   return async (context) => {
@@ -49,6 +51,26 @@ export function createImageHandler({
     }
 
     const chatId = context.chat.id;
+    const activityContext = {
+      telegramUpdateId: context.update?.update_id ?? null,
+      chatId: telegramChatIdFromContext(context),
+      user: telegramUserFromContext(context),
+    };
+
+    try {
+      await activityLogService.append({
+        event: "prompt_received",
+        ...activityContext,
+        prompt: request.prompt,
+        seed: request.seed,
+      });
+    } catch (error) {
+      logger.error("Could not record the received prompt in the activity log.", {
+        error,
+        chatId,
+      });
+    }
+
     let statusMessage;
     let queueEntry;
     let releaseQueueTask;
@@ -107,19 +129,39 @@ export function createImageHandler({
 
     try {
       const result = await queueEntry.promise;
+      try {
+        await activityLogService.append({
+          event: "image_generated",
+          ...activityContext,
+          prompt: request.prompt,
+          seed: request.seed,
+          promptId: result.promptId,
+          filename: result.filename,
+          durationMs: result.durationMs,
+        });
+      } catch (error) {
+        logger.error("Could not record the generated image in the activity log.", {
+          error,
+          chatId,
+          promptId: result.promptId,
+        });
+      }
+
       await safelyEditStatus(
         context,
         statusMessage,
         completedMessage(request, generationSettings, result.durationMs),
         logger,
       );
-      await context.replyWithDocument(
-        { source: result.buffer, filename: result.filename },
-        { caption: IMAGE_CAPTION },
-      );
-      logger.info("Generated image delivered to Telegram.", {
+      const mediaCaption = {
+        caption: MEDIA_ATTRIBUTION_HTML,
+        parse_mode: "HTML",
+      };
+      await context.replyWithPhoto({ source: result.buffer }, mediaCaption);
+      logger.info("Generated image delivered to Telegram as a photo.", {
         chatId,
         promptId: result.promptId,
+        filename: result.filename,
         durationMs: result.durationMs,
       });
     } catch (error) {

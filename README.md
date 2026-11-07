@@ -3,7 +3,7 @@
 Fabrexa Canvas is a private, self-hosted Telegram image-generation bot for a
 locally running ComfyUI instance. Send a text prompt in Telegram, and the bot
 queues the request, runs the existing ComfyUI API workflow, and returns the
-original PNG as a document.
+result as a Telegram photo.
 
 The project is intentionally small and local-first. It uses Telegram long
 polling, keeps ComfyUI on localhost, and does not create duplicate image files.
@@ -15,8 +15,9 @@ polling, keeps ComfyUI on localhost, and does not create duplicate image files.
 - Direct prompt and random-seed injection into an existing API workflow
 - Explicit workflow node mappings validated during startup
 - ComfyUI completion, failure, and timeout detection
-- Original PNG delivery with Telegram `sendDocument`
-- Periodic `upload_document` chat activity while ComfyUI is working
+- Telegram photo delivery with a linked Fabrexa Canvas attribution
+- Local JSON activity history for starts, prompts, and generated filenames
+- Periodic `upload_photo` chat activity while ComfyUI is working
 - Graceful polling shutdown and structured diagnostic logs
 - Automated tests that do not need Telegram, ComfyUI, or a GPU
 
@@ -45,6 +46,7 @@ src/
     index.js                     Environment parsing and validation
     generation.config.js        Display-only generation metadata
   services/
+    activity-log.service.js      Local JSON activity history
     comfyui.service.js           Workflow and ComfyUI API integration
     generation-queue.service.js  Bounded single-worker FIFO queue
     generation.service.js        Generation orchestration
@@ -121,7 +123,9 @@ Open `workflow_api.json` in a text editor and find these three nodes:
 2. **Seed node:** Find the sampler or noise node whose input contains the seed.
    Copy its object key as `COMFYUI_SEED_NODE_ID`. Copy the exact input name,
    commonly `seed` or `noise_seed`, as `COMFYUI_SEED_INPUT`.
-3. **SaveImage node:** Find the node whose `class_type` is `SaveImage`. Copy its
+   If another processing node also has an independent seed, list it as a
+   `nodeId:inputName` pair in `COMFYUI_ADDITIONAL_SEED_MAPPINGS`.
+3. **SaveImage node:** Find the final node whose `class_type` is `SaveImage`. Copy its
    object key as `COMFYUI_SAVE_IMAGE_NODE_ID`.
 
 Node IDs are workflow-specific and must not be guessed. The application checks
@@ -135,6 +139,7 @@ COMFYUI_POSITIVE_PROMPT_NODE_ID=your-positive-node-id
 COMFYUI_POSITIVE_PROMPT_INPUT=text
 COMFYUI_SEED_NODE_ID=your-seed-node-id
 COMFYUI_SEED_INPUT=seed
+COMFYUI_ADDITIONAL_SEED_MAPPINGS=optional-node-id:seed
 COMFYUI_SAVE_IMAGE_NODE_ID=your-save-image-node-id
 ```
 
@@ -152,12 +157,15 @@ Copy `.env.example` to `.env`, then fill in the blank values.
 | `COMFYUI_POSITIVE_PROMPT_INPUT` | Yes | Positive text input name |
 | `COMFYUI_SEED_NODE_ID` | Yes | Sampler/noise seed node ID |
 | `COMFYUI_SEED_INPUT` | Yes | Seed input name |
+| `COMFYUI_ADDITIONAL_SEED_MAPPINGS` | No | Additional `nodeId:inputName` seed mappings, comma-separated |
 | `COMFYUI_SAVE_IMAGE_NODE_ID` | Yes | SaveImage node ID used for delivery |
 | `COMFYUI_POLL_INTERVAL_MS` | No | History polling interval; default `2000` |
 | `COMFYUI_TIMEOUT_MS` | No | Whole-generation timeout; default `240000` |
 | `COMFYUI_REQUEST_TIMEOUT_MS` | No | Individual HTTP timeout; default `10000` |
 | `GENERATION_QUEUE_MAX_SIZE` | No | Active plus waiting jobs; default `5` |
 | `PROMPT_MAX_LENGTH` | No | Maximum prompt characters; default `1500` |
+| `ACTIVITY_LOG_PATH` | No | Local JSON activity file; default `./data/activity-log.json` |
+| `ACTIVITY_LOG_TIME_ZONE` | No | Local timestamp time zone; default `Asia/Tehran` |
 | `LOG_LEVEL` | No | `debug`, `info`, `warn`, or `error` |
 
 `COMFYUI_BASE_URL` accepts only loopback hosts (`127.0.0.1`, `localhost`, or
@@ -200,15 +208,31 @@ Fabrexa Canvas:
 ...
 ```
 
-While a job is active, Telegram displays the document-upload activity. When it
-finishes, the bot edits the one status message and sends the PNG as a document.
+While a job is active, Telegram displays the photo-upload activity. When it
+finishes, the bot keeps the completed prompt, settings, seed, and duration in
+the status message, adds a short delivery notice, and sends only the photo. Its
+caption contains only the linked Fabrexa Canvas attribution.
+
+## Activity history
+
+The bot creates `data/activity-log.json` as a JSON array. It records `/start`
+attempts, accepted prompts, and successful generations with UTC and Tehran
+timestamps, Telegram identity details, prompt text, seed, prompt ID, duration,
+and the generated filename where applicable.
+
+The default activity file and its atomic temporary files are ignored by Git.
+They can contain private Telegram identity and prompt data and must not be
+committed. If `ACTIVITY_LOG_PATH` is changed, add the custom path to
+`.gitignore` as well.
 
 ## Image storage
 
 The SaveImage node remains active, so ComfyUI writes the original PNG to its
 existing configured output directory. Fabrexa Canvas retrieves that same output
 through `GET /view` into memory and sends it to Telegram. It does not create a
-project copy, move the original, or use the Windows Downloads folder.
+project copy, move the original, or use the Windows Downloads folder. The same
+in-memory PNG is used for the Telegram photo while ComfyUI keeps the original
+in its configured output directory.
 
 ## Quality checks
 

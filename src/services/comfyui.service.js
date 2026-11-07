@@ -51,6 +51,11 @@ export function validateWorkflowMappings(workflow, mappings) {
   const seedNode = getMappedNode(workflow, mappings.seedNodeId, "Seed");
   assertMappedInput(seedNode, mappings.seedNodeId, mappings.seedInput, "Seed");
 
+  for (const { nodeId, inputName } of mappings.additionalSeedMappings ?? []) {
+    const additionalSeedNode = getMappedNode(workflow, nodeId, "Additional seed");
+    assertMappedInput(additionalSeedNode, nodeId, inputName, "Additional seed");
+  }
+
   const saveImageNode = getMappedNode(workflow, mappings.saveImageNodeId, "SaveImage");
   if (saveImageNode.class_type !== "SaveImage") {
     throw new WorkflowError(
@@ -66,6 +71,9 @@ export function cloneAndInjectWorkflow(workflow, mappings, { prompt, seed }) {
   const clonedWorkflow = structuredClone(workflow);
   clonedWorkflow[mappings.positivePromptNodeId].inputs[mappings.positivePromptInput] = prompt;
   clonedWorkflow[mappings.seedNodeId].inputs[mappings.seedInput] = seed;
+  for (const { nodeId, inputName } of mappings.additionalSeedMappings ?? []) {
+    clonedWorkflow[nodeId].inputs[inputName] = seed;
+  }
   return clonedWorkflow;
 }
 

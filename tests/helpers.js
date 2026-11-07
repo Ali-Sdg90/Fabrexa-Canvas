@@ -3,6 +3,7 @@ export const workflowMappings = Object.freeze({
   positivePromptInput: "text",
   seedNodeId: "20",
   seedInput: "seed",
+  additionalSeedMappings: Object.freeze([]),
   saveImageNodeId: "40",
 });
 

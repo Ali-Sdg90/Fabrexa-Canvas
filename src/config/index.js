@@ -68,11 +68,50 @@ function parseLogLevel(environment) {
   return level;
 }
 
+function parseAdditionalSeedMappings(environment) {
+  const rawValue = environment.COMFYUI_ADDITIONAL_SEED_MAPPINGS?.trim();
+  if (!rawValue) {
+    return Object.freeze([]);
+  }
+
+  const mappings = rawValue.split(",").map((mapping) => {
+    const [nodeId, inputName, ...extraParts] = mapping.split(":").map((part) => part.trim());
+    if (!nodeId || !inputName || extraParts.length > 0) {
+      throw new ConfigError(
+        "COMFYUI_ADDITIONAL_SEED_MAPPINGS must use comma-separated nodeId:inputName pairs.",
+      );
+    }
+    return Object.freeze({ nodeId, inputName });
+  });
+
+  const uniqueMappings = new Set(mappings.map(({ nodeId, inputName }) => `${nodeId}:${inputName}`));
+  if (uniqueMappings.size !== mappings.length) {
+    throw new ConfigError("COMFYUI_ADDITIONAL_SEED_MAPPINGS contains a duplicate mapping.");
+  }
+
+  return Object.freeze(mappings);
+}
+
+function parseTimeZone(environment) {
+  const timeZone = optionalString(environment, "ACTIVITY_LOG_TIME_ZONE", "Asia/Tehran");
+  try {
+    new Intl.DateTimeFormat("en", { timeZone }).format();
+  } catch {
+    throw new ConfigError("ACTIVITY_LOG_TIME_ZONE must be a valid IANA time zone.");
+  }
+  return timeZone;
+}
+
 export function loadConfig(environment = process.env, { cwd = process.cwd() } = {}) {
   const workflowPathValue = optionalString(
     environment,
     "COMFYUI_WORKFLOW_PATH",
     "./src/workflows/workflow_api.json",
+  );
+  const activityLogPathValue = optionalString(
+    environment,
+    "ACTIVITY_LOG_PATH",
+    "./data/activity-log.json",
   );
 
   return Object.freeze({
@@ -104,6 +143,7 @@ export function loadConfig(environment = process.env, { cwd = process.cwd() } = 
         positivePromptInput: requireString(environment, "COMFYUI_POSITIVE_PROMPT_INPUT"),
         seedNodeId: requireString(environment, "COMFYUI_SEED_NODE_ID"),
         seedInput: requireString(environment, "COMFYUI_SEED_INPUT"),
+        additionalSeedMappings: parseAdditionalSeedMappings(environment),
         saveImageNodeId: requireString(environment, "COMFYUI_SAVE_IMAGE_NODE_ID"),
       }),
     }),
@@ -122,6 +162,10 @@ export function loadConfig(environment = process.env, { cwd = process.cwd() } = 
         min: 10,
         max: 10000,
       }),
+    }),
+    activityLog: Object.freeze({
+      filePath: path.resolve(cwd, activityLogPathValue),
+      timeZone: parseTimeZone(environment),
     }),
     logging: Object.freeze({ level: parseLogLevel(environment) }),
     generation: GENERATION_SETTINGS,

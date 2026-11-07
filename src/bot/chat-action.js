@@ -3,7 +3,7 @@ export function startChatAction({ telegram, chatId, intervalMs, logger }) {
 
   const sendAction = async () => {
     try {
-      await telegram.sendChatAction(chatId, "upload_document");
+      await telegram.sendChatAction(chatId, "upload_photo");
     } catch (error) {
       if (!stopped) {
         logger.warn("Could not update Telegram chat activity.", { error, chatId });

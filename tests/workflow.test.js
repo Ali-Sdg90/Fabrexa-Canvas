@@ -32,6 +32,27 @@ test("workflow injection clones the workflow and changes only prompt and seed", 
   assert.deepEqual(injected["40"], original["40"]);
 });
 
+test("workflow injection applies one request seed to additional mapped seed inputs", () => {
+  const original = createWorkflow();
+  original["79"] = {
+    class_type: "FaceDetailer",
+    inputs: { seed: 999, image: ["50", 0] },
+  };
+  const mappings = {
+    ...workflowMappings,
+    additionalSeedMappings: [{ nodeId: "79", inputName: "seed" }],
+  };
+
+  const injected = cloneAndInjectWorkflow(original, mappings, {
+    prompt: "A portrait",
+    seed: 123456789,
+  });
+
+  assert.equal(injected["20"].inputs.seed, 123456789);
+  assert.equal(injected["79"].inputs.seed, 123456789);
+  assert.equal(original["79"].inputs.seed, 999);
+});
+
 test("workflow mapping validation reports missing and incorrect nodes", () => {
   const workflow = createWorkflow();
   assert.equal(validateWorkflowMappings(workflow, workflowMappings), true);

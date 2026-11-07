@@ -48,3 +48,9 @@ export class PromptValidationError extends AppError {
     super(message, { code: "INVALID_PROMPT", ...options });
   }
 }
+
+export class ActivityLogError extends AppError {
+  constructor(message, options = {}) {
+    super(message, { code: "ACTIVITY_LOG_ERROR", ...options });
+  }
+}

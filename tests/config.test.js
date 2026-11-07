@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
 
 import { loadConfig } from "../src/config/index.js";
@@ -14,6 +15,7 @@ function validEnvironment(overrides = {}) {
     COMFYUI_POSITIVE_PROMPT_INPUT: "text",
     COMFYUI_SEED_NODE_ID: "20",
     COMFYUI_SEED_INPUT: "seed",
+    COMFYUI_ADDITIONAL_SEED_MAPPINGS: "79:seed, 91:noise_seed",
     COMFYUI_SAVE_IMAGE_NODE_ID: "40",
     ...overrides,
   };
@@ -26,6 +28,12 @@ test("loadConfig validates and normalizes a complete environment", () => {
   assert.equal(config.comfyUi.baseUrl, "http://127.0.0.1:8188");
   assert.equal(config.comfyUi.pollIntervalMs, 2000);
   assert.equal(config.comfyUi.mappings.positivePromptNodeId, "10");
+  assert.deepEqual(config.comfyUi.mappings.additionalSeedMappings, [
+    { nodeId: "79", inputName: "seed" },
+    { nodeId: "91", inputName: "noise_seed" },
+  ]);
+  assert.equal(config.activityLog.timeZone, "Asia/Tehran");
+  assert.equal(path.basename(config.activityLog.filePath), "activity-log.json");
   assert.equal(config.generation.width, 832);
   assert.equal(config.generation.height, 1152);
 });
@@ -52,5 +60,12 @@ test("loadConfig rejects invalid numeric limits", () => {
   assert.throws(
     () => loadConfig(validEnvironment({ GENERATION_QUEUE_MAX_SIZE: "unlimited" })),
     (error) => error instanceof ConfigError && /whole number/.test(error.message),
+  );
+});
+
+test("loadConfig rejects malformed additional seed mappings", () => {
+  assert.throws(
+    () => loadConfig(validEnvironment({ COMFYUI_ADDITIONAL_SEED_MAPPINGS: "79" })),
+    (error) => error instanceof ConfigError && /nodeId:inputName/.test(error.message),
   );
 });

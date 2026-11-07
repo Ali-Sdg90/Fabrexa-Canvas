@@ -1,6 +1,7 @@
 import { Telegraf } from "telegraf";
 
 import { UpdateDeduplicator } from "../utils/update-deduplicator.js";
+import { telegramChatIdFromContext, telegramUserFromContext } from "../utils/telegram-user.js";
 import { createImageHandler } from "./handlers/image.handler.js";
 import { createStartHandler } from "./handlers/start.handler.js";
 import { PRIVATE_BOT_MESSAGE, TEXT_ONLY_MESSAGE } from "./messages.js";
@@ -33,7 +34,41 @@ export function createDeduplicationMiddleware(deduplicator, logger) {
   };
 }
 
-export function createBot({ config, generationService, generationQueue, logger, botFactory }) {
+function isStartCommand(context) {
+  const firstToken = context.message?.text?.trim().split(/\s+/, 1)[0];
+  return typeof firstToken === "string" && /^\/start(?:@[a-z0-9_]+)?$/i.test(firstToken);
+}
+
+export function createStartLoggingMiddleware({ activityLogService, allowedUserId, logger }) {
+  return async (context, next) => {
+    if (isStartCommand(context)) {
+      try {
+        await activityLogService.append({
+          event: "start",
+          telegramUpdateId: context.update?.update_id ?? null,
+          chatId: telegramChatIdFromContext(context),
+          user: telegramUserFromContext(context),
+          authorized: isAuthorizedUser(context, allowedUserId),
+        });
+      } catch (error) {
+        logger.error("Could not record the Telegram start event.", {
+          error,
+          chatId: context.chat?.id,
+        });
+      }
+    }
+    return next();
+  };
+}
+
+export function createBot({
+  config,
+  generationService,
+  generationQueue,
+  activityLogService,
+  logger,
+  botFactory,
+}) {
   const bot = botFactory ? botFactory(config.telegram.botToken) : new Telegraf(config.telegram.botToken);
   const deduplicator = new UpdateDeduplicator({
     ttlMs: config.updates.dedupTtlMs,
@@ -41,6 +76,13 @@ export function createBot({ config, generationService, generationQueue, logger, 
   });
 
   bot.use(createDeduplicationMiddleware(deduplicator, logger));
+  bot.use(
+    createStartLoggingMiddleware({
+      activityLogService,
+      allowedUserId: config.telegram.allowedUserId,
+      logger,
+    }),
+  );
   bot.use(createAccessMiddleware(config.telegram.allowedUserId));
   bot.start(createStartHandler());
   bot.on(
@@ -51,6 +93,7 @@ export function createBot({ config, generationService, generationQueue, logger, 
       generationSettings: config.generation,
       promptMaxLength: config.prompt.maxLength,
       actionIntervalMs: config.telegram.actionIntervalMs,
+      activityLogService,
       logger,
     }),
   );

@@ -5,5 +5,7 @@ starting-prompt.md
 node_modules/
 coverage/
 *.log
+data/activity-log.json
+data/activity-log.json.tmp-*
 .DS_Store
 Thumbs.db
