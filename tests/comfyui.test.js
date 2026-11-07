@@ -6,6 +6,7 @@ import {
   ComfyUiError,
   GenerationFailedError,
   GenerationTimeoutError,
+  GpuHandoffError,
 } from "../src/utils/errors.js";
 import { createWorkflow, silentLogger, workflowMappings } from "./helpers.js";
 
@@ -16,6 +17,12 @@ function serviceConfig(overrides = {}) {
     pollIntervalMs: 1,
     timeoutMs: 1000,
     requestTimeoutMs: 100,
+    idleTimeoutMs: 1000,
+    cleanupTimeoutMs: 1000,
+    cleanupPollIntervalMs: 1,
+    cleanupMinReleaseBytes: 64 * 1024 * 1024,
+    cleanupFreeRatio: 0.7,
+    cleanupStableSamples: 2,
     mappings: workflowMappings,
     ...overrides,
   };
@@ -148,4 +155,102 @@ test("ComfyUIService downloads the image into memory without a filesystem copy",
 
   assert.equal(result.filename, "result.png");
   assert.deepEqual(result.buffer, pngBytes);
+});
+
+test("ComfyUIService unloads models only while idle and verifies released VRAM", async () => {
+  const posts = [];
+  let statsCalls = 0;
+  const service = new ComfyUIService(serviceConfig(), silentLogger, {
+    httpClient: {
+      async get(path) {
+        if (path === "/queue") {
+          return { data: { queue_running: [], queue_pending: [] } };
+        }
+        if (path === "/system_stats") {
+          statsCalls += 1;
+          const freeBytes = statsCalls === 1 ? 2_000_000_000 : 7_000_000_000;
+          return {
+            data: {
+              devices: [
+                { name: "RTX 4060", type: "cuda", vram_total: 8_000_000_000, vram_free: freeBytes },
+              ],
+            },
+          };
+        }
+        throw new Error(`Unexpected path: ${path}`);
+      },
+      async post(path, body) {
+        posts.push({ path, body });
+        return { data: {} };
+      },
+    },
+    sleep: async () => undefined,
+  });
+
+  const result = await service.releaseModelsForExternalInference();
+
+  assert.deepEqual(posts, [
+    { path: "/free", body: { unload_models: true, free_memory: true } },
+  ]);
+  assert.equal(result.beforeFreeBytes, 2_000_000_000);
+  assert.equal(result.afterFreeBytes, 7_000_000_000);
+});
+
+test("ComfyUIService does not request cleanup while another job stays active", async () => {
+  let time = -500;
+  let postCalls = 0;
+  const service = new ComfyUIService(serviceConfig({ idleTimeoutMs: 1000 }), silentLogger, {
+    httpClient: {
+      get: async () => ({ data: { queue_running: [["manual-job"]], queue_pending: [] } }),
+      post: async () => {
+        postCalls += 1;
+        return { data: {} };
+      },
+    },
+    sleep: async () => undefined,
+    now: () => {
+      time += 500;
+      return time;
+    },
+  });
+
+  await assert.rejects(() => service.releaseModelsForExternalInference(), /remained busy/);
+  assert.equal(postCalls, 0);
+});
+
+test("ComfyUIService fails when released VRAM cannot be verified before timeout", async () => {
+  let time = -500;
+  const service = new ComfyUIService(
+    serviceConfig({ cleanupTimeoutMs: 1000, cleanupMinReleaseBytes: 64 * 1024 * 1024 }),
+    silentLogger,
+    {
+      httpClient: {
+        async get(path) {
+          if (path === "/queue") {
+            return { data: { queue_running: [], queue_pending: [] } };
+          }
+          return {
+            data: {
+              devices: [
+                {
+                  name: "RTX 4060",
+                  type: "cuda",
+                  vram_total: 8_000_000_000,
+                  vram_free: 2_000_000_000,
+                },
+              ],
+            },
+          };
+        },
+        post: async () => ({ data: {} }),
+      },
+      sleep: async () => undefined,
+      now: () => {
+        time += 500;
+        return time;
+      },
+    },
+  );
+
+  await assert.rejects(() => service.releaseModelsForExternalInference(), GpuHandoffError);
 });

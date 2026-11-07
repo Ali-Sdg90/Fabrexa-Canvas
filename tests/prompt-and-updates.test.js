@@ -19,6 +19,13 @@ test("PromptService rejects empty and oversized prompts", () => {
   assert.throws(() => service.prepare("123456"), PromptValidationError);
 });
 
+test("PromptService accepts the configured 3500-character input limit", () => {
+  const service = new PromptService({ maxLength: 3500 });
+
+  assert.equal(service.prepare("x".repeat(3500)).length, 3500);
+  assert.throws(() => service.prepare("x".repeat(3501)), PromptValidationError);
+});
+
 test("UpdateDeduplicator rejects repeated update IDs and expires old entries", () => {
   let currentTime = 1000;
   const deduplicator = new UpdateDeduplicator({

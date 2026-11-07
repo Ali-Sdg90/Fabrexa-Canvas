@@ -2,6 +2,11 @@ import {
   ComfyUiError,
   GenerationFailedError,
   GenerationTimeoutError,
+  GpuHandoffError,
+  OllamaError,
+  OllamaModelError,
+  OllamaStartupError,
+  PromptEnhancementError,
   PromptValidationError,
   QueueFullError,
 } from "../utils/errors.js";
@@ -27,6 +32,11 @@ function formatFullPrompt(prompt) {
 <blockquote expandable>${escapeTelegramHtml(prompt)}</blockquote>`;
 }
 
+function formatPrompt(prompt, label = "Full Prompt") {
+  return `📝 ${label}
+<blockquote expandable>${escapeTelegramHtml(prompt)}</blockquote>`;
+}
+
 function formatSettings(settings, seed) {
   return `⚙️ Generation Settings
 Model: ${settings.model}
@@ -37,14 +47,33 @@ Sampler: ${settings.sampler} / ${settings.scheduler}
 Seed: ${seed}`;
 }
 
-export function creatingMessage({ prompt, seed }, settings) {
+export function understandingSceneMessage({ prompt }) {
+  return `🧭 Understanding your scene...
+
+${formatPrompt(prompt, "Original Request")}
+
+⏳ Preparing a focused visual prompt...`;
+}
+
+export function preparingImageMessage({ prompt, seed }, settings) {
+  return `🔄 Preparing image generation...
+
+${formatPrompt(prompt, "Enhanced Prompt")}
+
+${formatSettings(settings, seed)}
+
+⏳ Releasing the scene model and preparing ComfyUI...`;
+}
+
+export function creatingMessage({ prompt, seed }, settings, { includeEstimate = true } = {}) {
+  const estimate = includeEstimate
+    ? "\n\n⏱ Your image should be ready in about 45 seconds."
+    : "";
   return `🎨 Creating your image...
 
 ${formatFullPrompt(prompt)}
 
-${formatSettings(settings, seed)}
-
-⏱ Your image should be ready in about 45 seconds.
+${formatSettings(settings, seed)}${estimate}
 
 ⏳ Generating...`;
 }
@@ -90,6 +119,21 @@ export function userFacingError(error, maxPromptLength) {
   }
   if (error instanceof ComfyUiError) {
     return "I couldn't communicate with ComfyUI. Make sure it is running locally, then try again.";
+  }
+  if (error instanceof GpuHandoffError) {
+    return "I couldn't safely hand GPU resources between the local models. Image generation was not started.";
+  }
+  if (error instanceof OllamaStartupError) {
+    return "The local scene director could not start. Check the Ollama installation, then try again.";
+  }
+  if (error instanceof OllamaModelError) {
+    return "The configured local scene model is unavailable or could not be unloaded safely.";
+  }
+  if (error instanceof OllamaError) {
+    return "I couldn't communicate with the local scene director. Please try again after checking Ollama.";
+  }
+  if (error instanceof PromptEnhancementError) {
+    return "The local scene director did not produce a usable image prompt. No image was generated.";
   }
   return "Something went wrong while creating your image. Please try again.";
 }

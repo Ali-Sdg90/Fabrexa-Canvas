@@ -5,7 +5,9 @@ import {
   UNKNOWN_COMMAND_MESSAGE,
   completedMessage,
   creatingMessage,
+  preparingImageMessage,
   queuedMessage,
+  understandingSceneMessage,
   userFacingError,
 } from "../messages.js";
 
@@ -87,10 +89,13 @@ export function createImageHandler({
             return null;
           }
           if (queueEntry.queued) {
+            const activeMessage = generationService.enhancementEnabled
+              ? understandingSceneMessage(request)
+              : creatingMessage(request, generationSettings);
             await safelyEditStatus(
               context,
               statusMessage,
-              creatingMessage(request, generationSettings),
+              activeMessage,
               logger,
             );
           }
@@ -102,7 +107,33 @@ export function createImageHandler({
             logger,
           });
           try {
-            return await generationService.generate(request);
+            return await generationService.generate(request, {
+              onStage: async ({ stage, prompt }) => {
+                if (!generationService.enhancementEnabled) {
+                  return;
+                }
+                if (stage === "preparing_image") {
+                  await safelyEditStatus(
+                    context,
+                    statusMessage,
+                    preparingImageMessage({ prompt, seed: request.seed }, generationSettings),
+                    logger,
+                  );
+                }
+                if (stage === "generating_image") {
+                  await safelyEditStatus(
+                    context,
+                    statusMessage,
+                    creatingMessage(
+                      { prompt, seed: request.seed },
+                      generationSettings,
+                      { includeEstimate: false },
+                    ),
+                    logger,
+                  );
+                }
+              },
+            });
           } finally {
             stopChatAction();
           }
@@ -112,7 +143,9 @@ export function createImageHandler({
 
       const initialText = queueEntry.queued
         ? queuedMessage(request, generationSettings, queueEntry.position)
-        : creatingMessage(request, generationSettings);
+        : generationService.enhancementEnabled
+          ? understandingSceneMessage(request)
+          : creatingMessage(request, generationSettings);
       statusMessage = await context.reply(initialText, { parse_mode: "HTML" });
       releaseQueueTask(true);
     } catch (error) {
@@ -135,11 +168,15 @@ export function createImageHandler({
         await activityLogService.append({
           event: "image_generated",
           ...activityContext,
-          prompt: request.prompt,
+          originalPrompt: request.prompt,
+          prompt: result.prompt,
+          enhanced: result.enhanced,
+          fallbackUsed: result.fallbackUsed,
           seed: request.seed,
           promptId: result.promptId,
           filename: result.filename,
           durationMs: result.durationMs,
+          timings: result.timings,
         });
       } catch (error) {
         logger.error("Could not record the generated image in the activity log.", {
@@ -152,7 +189,11 @@ export function createImageHandler({
       await safelyEditStatus(
         context,
         statusMessage,
-        completedMessage(request, generationSettings, result.durationMs),
+        completedMessage(
+          { prompt: result.prompt, seed: request.seed },
+          generationSettings,
+          result.durationMs,
+        ),
         logger,
       );
       const mediaCaption = {

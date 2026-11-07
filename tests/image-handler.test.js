@@ -22,6 +22,10 @@ test("image handler types while generating, then uploads only a photo", async ()
           buffer: imageBuffer,
           filename: "FabrexaCanvas_00001_.png",
           promptId: "prompt-1",
+          prompt: "A <mysterious> & detailed castle",
+          enhanced: false,
+          fallbackUsed: false,
+          timings: { totalMs: 4321 },
           durationMs: 4321,
         };
       },
@@ -94,4 +98,65 @@ test("image handler types while generating, then uploads only a photo", async ()
     ["prompt_received", "image_generated"],
   );
   assert.equal(activityEvents[1].filename, "FabrexaCanvas_00001_.png");
+});
+
+test("image handler displays the actual enhanced prompt used by ComfyUI", async () => {
+  const edits = [];
+  const activityEvents = [];
+  const generationQueue = new GenerationQueue({ maxSize: 2, logger: silentLogger });
+  const handler = createImageHandler({
+    generationService: {
+      enhancementEnabled: true,
+      prepareRequest() {
+        return { prompt: "A long raw story", seed: 42 };
+      },
+      async generate(_request, { onStage }) {
+        await onStage({ stage: "preparing_image", prompt: "A focused visual prompt" });
+        await onStage({ stage: "generating_image", prompt: "A focused visual prompt" });
+        return {
+          buffer: Buffer.from("png"),
+          filename: "result.png",
+          promptId: "prompt-2",
+          originalPrompt: "A long raw story",
+          prompt: "A focused visual prompt",
+          enhanced: true,
+          fallbackUsed: false,
+          timings: { totalMs: 10000 },
+          durationMs: 10000,
+        };
+      },
+    },
+    generationQueue,
+    generationSettings: GENERATION_SETTINGS,
+    promptMaxLength: 1500,
+    actionIntervalMs: 4000,
+    activityLogService: { append: async (event) => activityEvents.push(event) },
+    logger: silentLogger,
+  });
+  const context = {
+    update: { update_id: 88 },
+    message: { text: "A long raw story" },
+    from: { id: 123 },
+    chat: { id: 123 },
+    telegram: {
+      async editMessageText(_chatId, _messageId, _inlineMessageId, text) {
+        edits.push(text);
+      },
+      async sendChatAction() {},
+    },
+    async reply(text) {
+      assert.match(text, /Understanding your scene/);
+      return { chat: { id: 123 }, message_id: 11 };
+    },
+    async replyWithPhoto() {},
+  };
+
+  await handler(context);
+
+  assert.match(edits.at(-1), /A focused visual prompt/);
+  assert.doesNotMatch(edits.at(-1), /A long raw story/);
+  const generatedEvent = activityEvents.find((event) => event.event === "image_generated");
+  assert.equal(generatedEvent.originalPrompt, "A long raw story");
+  assert.equal(generatedEvent.prompt, "A focused visual prompt");
+  assert.equal(generatedEvent.enhanced, true);
 });

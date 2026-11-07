@@ -34,6 +34,12 @@ test("loadConfig validates and normalizes a complete environment", () => {
   ]);
   assert.equal(config.activityLog.timeZone, "Asia/Tehran");
   assert.equal(config.seed.fixed, null);
+  assert.equal(config.promptEnhancement.enabled, false);
+  assert.equal(config.promptEnhancement.fallbackToRaw, false);
+  assert.equal(config.prompt.maxLength, 3500);
+  assert.equal(config.ollama.baseUrl, "http://127.0.0.1:11434");
+  assert.match(config.ollama.model, /Gemma-The-Writer-9B/);
+  assert.equal(config.ollama.numCtx, 8192);
   assert.equal(path.basename(config.activityLog.filePath), "activity-log.json");
   assert.equal(config.generation.width, 832);
   assert.equal(config.generation.height, 1152);
@@ -54,6 +60,23 @@ test("loadConfig rejects a non-loopback ComfyUI endpoint", () => {
   assert.throws(
     () => loadConfig(validEnvironment({ COMFYUI_BASE_URL: "https://example.com:8188" })),
     (error) => error instanceof ConfigError && /loopback/.test(error.message),
+  );
+});
+
+test("loadConfig rejects a non-loopback Ollama endpoint", () => {
+  assert.throws(
+    () => loadConfig(validEnvironment({ OLLAMA_BASE_URL: "http://example.com:11434" })),
+    (error) => error instanceof ConfigError && /OLLAMA_BASE_URL/.test(error.message),
+  );
+});
+
+test("loadConfig validates prompt-enhancement booleans", () => {
+  const enabled = loadConfig(validEnvironment({ PROMPT_ENHANCEMENT_ENABLED: "true" }));
+  assert.equal(enabled.promptEnhancement.enabled, true);
+
+  assert.throws(
+    () => loadConfig(validEnvironment({ OLLAMA_AUTO_START: "sometimes" })),
+    (error) => error instanceof ConfigError && /true or false/.test(error.message),
   );
 });
 

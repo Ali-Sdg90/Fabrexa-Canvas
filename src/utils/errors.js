@@ -54,3 +54,33 @@ export class ActivityLogError extends AppError {
     super(message, { code: "ACTIVITY_LOG_ERROR", ...options });
   }
 }
+
+export class OllamaError extends AppError {
+  constructor(message, options = {}) {
+    super(message, { code: "OLLAMA_ERROR", ...options });
+  }
+}
+
+export class OllamaStartupError extends OllamaError {
+  constructor(message, options = {}) {
+    super(message, { code: "OLLAMA_STARTUP_ERROR", ...options });
+  }
+}
+
+export class OllamaModelError extends OllamaError {
+  constructor(message, options = {}) {
+    super(message, { code: "OLLAMA_MODEL_ERROR", ...options });
+  }
+}
+
+export class PromptEnhancementError extends AppError {
+  constructor(message, options = {}) {
+    super(message, { code: "PROMPT_ENHANCEMENT_ERROR", ...options });
+  }
+}
+
+export class GpuHandoffError extends AppError {
+  constructor(message, options = {}) {
+    super(message, { code: "GPU_HANDOFF_ERROR", ...options });
+  }
+}

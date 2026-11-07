@@ -18,7 +18,6 @@ export class PromptService {
       throw new PromptValidationError(`The prompt exceeds ${this.maxLength} characters.`);
     }
 
-    // Version 1 intentionally passes the user's words through without enhancement.
     return prompt;
   }
 }

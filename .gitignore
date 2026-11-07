@@ -1,4 +1,6 @@
 starting-prompt.md
+add-gemma-prompt.md
+
 .env
 .env.*
 !.env.example

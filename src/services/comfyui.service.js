@@ -7,6 +7,7 @@ import {
   ComfyUiError,
   GenerationFailedError,
   GenerationTimeoutError,
+  GpuHandoffError,
   WorkflowError,
 } from "../utils/errors.js";
 
@@ -243,6 +244,130 @@ export class ComfyUIService {
     } catch (error) {
       throw normalizeHttpError(error, "submit the workflow");
     }
+  }
+
+  async getQueueState() {
+    try {
+      const response = await this.httpClient.get("/queue");
+      const running = response?.data?.queue_running;
+      const pending = response?.data?.queue_pending;
+      if (!Array.isArray(running) || !Array.isArray(pending)) {
+        throw new ComfyUiError("ComfyUI returned an invalid queue response.");
+      }
+      return { running, pending, idle: running.length === 0 && pending.length === 0 };
+    } catch (error) {
+      throw normalizeHttpError(error, "inspect the queue");
+    }
+  }
+
+  async waitUntilIdle() {
+    const startedAt = this.now();
+    while (this.now() - startedAt < this.config.idleTimeoutMs) {
+      const queue = await this.getQueueState();
+      if (queue.idle) {
+        return { durationMs: this.now() - startedAt };
+      }
+      await this.sleep(this.config.cleanupPollIntervalMs);
+    }
+    throw new GpuHandoffError(
+      `ComfyUI remained busy for more than ${this.config.idleTimeoutMs} ms.`,
+    );
+  }
+
+  async getVramSnapshot() {
+    try {
+      const response = await this.httpClient.get("/system_stats");
+      const devices = Array.isArray(response?.data?.devices) ? response.data.devices : [];
+      const device =
+        devices.find(
+          (candidate) =>
+            typeof candidate?.type === "string" && candidate.type.toLowerCase().includes("cuda"),
+        ) ?? devices[0];
+      if (
+        !device ||
+        !Number.isFinite(device.vram_total) ||
+        !Number.isFinite(device.vram_free) ||
+        device.vram_total <= 0
+      ) {
+        throw new ComfyUiError("ComfyUI did not report usable VRAM statistics.");
+      }
+      return {
+        device: device.name ?? device.type ?? "unknown",
+        totalBytes: device.vram_total,
+        freeBytes: device.vram_free,
+      };
+    } catch (error) {
+      throw normalizeHttpError(error, "inspect VRAM usage");
+    }
+  }
+
+  async releaseModelsForExternalInference() {
+    await this.waitUntilIdle();
+    const before = await this.getVramSnapshot();
+
+    try {
+      await this.httpClient.post("/free", {
+        unload_models: true,
+        free_memory: true,
+      });
+    } catch (error) {
+      throw normalizeHttpError(error, "unload models and free memory");
+    }
+
+    const startedAt = this.now();
+    let previousFreeBytes = null;
+    let stableSamples = 0;
+
+    while (this.now() - startedAt < this.config.cleanupTimeoutMs) {
+      const queue = await this.getQueueState();
+      if (!queue.idle) {
+        throw new GpuHandoffError(
+          "ComfyUI started another job during GPU cleanup; Ollama inference was not started.",
+        );
+      }
+
+      const current = await this.getVramSnapshot();
+      const stableThresholdBytes = 32 * 1024 * 1024;
+      if (
+        previousFreeBytes !== null &&
+        Math.abs(current.freeBytes - previousFreeBytes) <= stableThresholdBytes
+      ) {
+        stableSamples += 1;
+      } else {
+        stableSamples = 1;
+      }
+      previousFreeBytes = current.freeBytes;
+
+      const alreadyMostlyFree = before.freeBytes / before.totalBytes >= this.config.cleanupFreeRatio;
+      const nowMostlyFree = current.freeBytes / current.totalBytes >= this.config.cleanupFreeRatio;
+      const releasedEnough =
+        current.freeBytes - before.freeBytes >= this.config.cleanupMinReleaseBytes;
+
+      if (
+        nowMostlyFree &&
+        (alreadyMostlyFree || releasedEnough) &&
+        stableSamples >= this.config.cleanupStableSamples
+      ) {
+        return {
+          durationMs: this.now() - startedAt,
+          beforeFreeBytes: before.freeBytes,
+          afterFreeBytes: current.freeBytes,
+          totalBytes: current.totalBytes,
+          device: current.device,
+        };
+      }
+      await this.sleep(this.config.cleanupPollIntervalMs);
+    }
+
+    throw new GpuHandoffError(
+      `ComfyUI GPU cleanup could not be verified within ${this.config.cleanupTimeoutMs} ms.`,
+      {
+        details: {
+          beforeFreeBytes: before.freeBytes,
+          totalBytes: before.totalBytes,
+        },
+      },
+    );
   }
 
   async getHistoryEntry(promptId) {
