@@ -29,6 +29,12 @@ async function safelyEditStatus(context, statusMessage, text, logger) {
   }
 }
 
+function startBackgroundTask(task, { logger, chatId }) {
+  void task.catch((error) => {
+    logger.error("Unexpected background generation error.", { error, chatId });
+  });
+}
+
 export function createImageHandler({
   generationService,
   generationQueue,
@@ -37,6 +43,7 @@ export function createImageHandler({
   actionIntervalMs,
   activityLogService,
   logger,
+  backgroundTaskRunner = startBackgroundTask,
 }) {
   return async (context) => {
     const rawPrompt = context.message?.text;
@@ -162,67 +169,71 @@ export function createImageHandler({
       return;
     }
 
-    try {
-      const result = await queueEntry.promise;
+    const completionTask = (async () => {
       try {
-        await activityLogService.append({
-          event: "image_generated",
-          ...activityContext,
-          originalPrompt: request.prompt,
-          prompt: result.prompt,
-          enhanced: result.enhanced,
-          fallbackUsed: result.fallbackUsed,
-          seed: request.seed,
+        const result = await queueEntry.promise;
+        try {
+          await activityLogService.append({
+            event: "image_generated",
+            ...activityContext,
+            originalPrompt: request.prompt,
+            prompt: result.prompt,
+            enhanced: result.enhanced,
+            fallbackUsed: result.fallbackUsed,
+            seed: request.seed,
+            promptId: result.promptId,
+            filename: result.filename,
+            durationMs: result.durationMs,
+            timings: result.timings,
+          });
+        } catch (error) {
+          logger.error("Could not record the generated image in the activity log.", {
+            error,
+            chatId,
+            promptId: result.promptId,
+          });
+        }
+
+        await safelyEditStatus(
+          context,
+          statusMessage,
+          completedMessage(
+            { prompt: result.prompt, seed: request.seed },
+            generationSettings,
+            result.durationMs,
+          ),
+          logger,
+        );
+        const mediaCaption = {
+          caption: MEDIA_ATTRIBUTION_HTML,
+          parse_mode: "HTML",
+        };
+        try {
+          await context.telegram.sendChatAction(chatId, "upload_photo");
+        } catch (error) {
+          logger.warn("Could not set Telegram photo-upload activity.", {
+            error,
+            chatId,
+          });
+        }
+        await context.replyWithPhoto({ source: result.buffer }, mediaCaption);
+        logger.info("Generated image delivered to Telegram as a photo.", {
+          chatId,
           promptId: result.promptId,
           filename: result.filename,
           durationMs: result.durationMs,
-          timings: result.timings,
         });
       } catch (error) {
-        logger.error("Could not record the generated image in the activity log.", {
-          error,
-          chatId,
-          promptId: result.promptId,
-        });
+        logger.error("Image generation request failed.", { error, chatId });
+        await safelyEditStatus(
+          context,
+          statusMessage,
+          userFacingError(error, promptMaxLength),
+          logger,
+        );
       }
+    })();
 
-      await safelyEditStatus(
-        context,
-        statusMessage,
-        completedMessage(
-          { prompt: result.prompt, seed: request.seed },
-          generationSettings,
-          result.durationMs,
-        ),
-        logger,
-      );
-      const mediaCaption = {
-        caption: MEDIA_ATTRIBUTION_HTML,
-        parse_mode: "HTML",
-      };
-      try {
-        await context.telegram.sendChatAction(chatId, "upload_photo");
-      } catch (error) {
-        logger.warn("Could not set Telegram photo-upload activity.", {
-          error,
-          chatId,
-        });
-      }
-      await context.replyWithPhoto({ source: result.buffer }, mediaCaption);
-      logger.info("Generated image delivered to Telegram as a photo.", {
-        chatId,
-        promptId: result.promptId,
-        filename: result.filename,
-        durationMs: result.durationMs,
-      });
-    } catch (error) {
-      logger.error("Image generation request failed.", { error, chatId });
-      await safelyEditStatus(
-        context,
-        statusMessage,
-        userFacingError(error, promptMaxLength),
-        logger,
-      );
-    }
+    backgroundTaskRunner(completionTask, { logger, chatId });
   };
 }

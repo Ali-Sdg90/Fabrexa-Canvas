@@ -10,6 +10,7 @@ import { silentLogger } from "./helpers.js";
 test("image handler types while generating, then uploads only a photo", async () => {
   const calls = [];
   const activityEvents = [];
+  const backgroundTasks = [];
   const imageBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
   const generationQueue = new GenerationQueue({ maxSize: 2, logger: silentLogger });
   const handler = createImageHandler({
@@ -40,6 +41,7 @@ test("image handler types while generating, then uploads only a photo", async ()
       },
     },
     logger: silentLogger,
+    backgroundTaskRunner: (task) => backgroundTasks.push(task),
   });
   const context = {
     update: { update_id: 77 },
@@ -64,6 +66,7 @@ test("image handler types while generating, then uploads only a photo", async ()
   };
 
   await handler(context);
+  await Promise.all(backgroundTasks);
 
   assert.deepEqual(
     calls.map((call) => call.type),
@@ -82,7 +85,7 @@ test("image handler types while generating, then uploads only a photo", async ()
     calls[2].text,
     /<blockquote expandable>A &lt;mysterious&gt; &amp; detailed castle<\/blockquote>/,
   );
-  assert.match(calls[2].text, /Model: CyberRealistic Pony V18/);
+  assert.doesNotMatch(calls[2].text, /^Model:/m);
   assert.match(calls[2].text, /Seed: 12345/);
   assert.match(calls[2].text, /⏱ Completed in 4\.3 seconds\./);
   assert.match(calls[2].text, /The image has been created and will be sent shortly\.$/);
@@ -103,6 +106,7 @@ test("image handler types while generating, then uploads only a photo", async ()
 test("image handler displays the actual enhanced prompt used by ComfyUI", async () => {
   const edits = [];
   const activityEvents = [];
+  const backgroundTasks = [];
   const generationQueue = new GenerationQueue({ maxSize: 2, logger: silentLogger });
   const handler = createImageHandler({
     generationService: {
@@ -132,6 +136,7 @@ test("image handler displays the actual enhanced prompt used by ComfyUI", async 
     actionIntervalMs: 4000,
     activityLogService: { append: async (event) => activityEvents.push(event) },
     logger: silentLogger,
+    backgroundTaskRunner: (task) => backgroundTasks.push(task),
   });
   const context = {
     update: { update_id: 88 },
@@ -152,6 +157,7 @@ test("image handler displays the actual enhanced prompt used by ComfyUI", async 
   };
 
   await handler(context);
+  await Promise.all(backgroundTasks);
 
   assert.match(edits.at(-1), /A focused visual prompt/);
   assert.doesNotMatch(edits.at(-1), /A long raw story/);
@@ -159,4 +165,69 @@ test("image handler displays the actual enhanced prompt used by ComfyUI", async 
   assert.equal(generatedEvent.originalPrompt, "A long raw story");
   assert.equal(generatedEvent.prompt, "A focused visual prompt");
   assert.equal(generatedEvent.enhanced, true);
+});
+
+test("image handler returns after queueing without waiting for a long generation", async () => {
+  const backgroundTasks = [];
+  let resolveGeneration;
+  const generationResult = new Promise((resolve) => {
+    resolveGeneration = resolve;
+  });
+  let photoDelivered = false;
+  const generationQueue = new GenerationQueue({ maxSize: 2, logger: silentLogger });
+  const handler = createImageHandler({
+    generationService: {
+      enhancementEnabled: false,
+      prepareRequest(prompt) {
+        return { prompt, seed: 7 };
+      },
+      async generate() {
+        return generationResult;
+      },
+    },
+    generationQueue,
+    generationSettings: GENERATION_SETTINGS,
+    promptMaxLength: 3500,
+    actionIntervalMs: 4000,
+    activityLogService: { append: async () => undefined },
+    logger: silentLogger,
+    backgroundTaskRunner: (task) => backgroundTasks.push(task),
+  });
+  const context = {
+    update: { update_id: 99 },
+    message: { text: "A long-running scene" },
+    from: { id: 123 },
+    chat: { id: 123 },
+    telegram: {
+      async editMessageText() {},
+      async sendChatAction() {},
+    },
+    async reply() {
+      return { chat: { id: 123 }, message_id: 12 };
+    },
+    async replyWithPhoto() {
+      photoDelivered = true;
+    },
+  };
+
+  await handler(context);
+
+  assert.equal(backgroundTasks.length, 1);
+  assert.equal(generationQueue.size, 1);
+  assert.equal(photoDelivered, false);
+
+  resolveGeneration({
+    buffer: Buffer.from("png"),
+    filename: "result.png",
+    promptId: "prompt-3",
+    prompt: "A long-running scene",
+    enhanced: false,
+    fallbackUsed: false,
+    timings: { totalMs: 120000 },
+    durationMs: 120000,
+  });
+  await Promise.all(backgroundTasks);
+
+  assert.equal(photoDelivered, true);
+  assert.equal(generationQueue.size, 0);
 });

@@ -10,18 +10,20 @@ import { WorkflowError } from "../src/utils/errors.js";
 import { generateSeed } from "../src/utils/seed.js";
 import { createWorkflow, workflowMappings } from "./helpers.js";
 
-test("workflow injection clones the workflow and changes only prompt and seed", () => {
+test("workflow injection clones the workflow and changes only runtime-controlled inputs", () => {
   const original = createWorkflow();
   const originalSnapshot = structuredClone(original);
 
   const injected = cloneAndInjectWorkflow(original, workflowMappings, {
     prompt: "A moonlit gothic castle",
     seed: 123456789,
+    checkpointName: "private-checkpoint.safetensors",
   });
 
   assert.notEqual(injected, original);
   assert.deepEqual(original, originalSnapshot);
   assert.equal(injected["10"].inputs.text, "A moonlit gothic castle");
+  assert.equal(injected["1"].inputs.ckpt_name, "private-checkpoint.safetensors");
   assert.equal(injected["20"].inputs.seed, 123456789);
   assert.equal(injected["11"].inputs.text, "existing negative prompt");
   assert.equal(injected["20"].inputs.steps, 20);
@@ -46,6 +48,7 @@ test("workflow injection applies one request seed to additional mapped seed inpu
   const injected = cloneAndInjectWorkflow(original, mappings, {
     prompt: "A portrait",
     seed: 123456789,
+    checkpointName: "private-checkpoint.safetensors",
   });
 
   assert.equal(injected["20"].inputs.seed, 123456789);
@@ -65,6 +68,13 @@ test("workflow mapping validation reports missing and incorrect nodes", () => {
       }),
     (error) => error instanceof WorkflowError && /999/.test(error.message),
   );
+
+  workflow["1"].class_type = "PreviewImage";
+  assert.throws(
+    () => validateWorkflowMappings(workflow, workflowMappings),
+    (error) => error instanceof WorkflowError && /CheckpointLoaderSimple/.test(error.message),
+  );
+  workflow["1"].class_type = "CheckpointLoaderSimple";
 
   workflow["40"].class_type = "PreviewImage";
   assert.throws(

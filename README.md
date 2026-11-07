@@ -26,7 +26,7 @@ polling, keeps ComfyUI on localhost, and does not create duplicate image files.
 
 Fabrexa Canvas changes only the positive prompt and mapped seed inputs. It does
 not alter the configured checkpoint, negative prompt, sampler, scheduler,
-resolution, FaceDetailer, or other workflow settings.
+resolution, or other workflow settings.
 
 ## Technology
 
@@ -68,7 +68,10 @@ The Telegram layer never edits workflow data. One `GenerationQueue` job owns
 the entire enhancement, cleanup, image generation, retrieval, and delivery
 pipeline. `GenerationService` coordinates the stages, while `ComfyUIService`
 owns workflow cloning, mapping validation, ComfyUI requests, completion polling,
-and image retrieval.
+and image retrieval. After a request is validated, the Telegram update handler
+returns immediately while the queued job continues in a guarded background
+task. This keeps long polling responsive and avoids Telegraf's per-update
+90-second timeout during local generation.
 
 When enhancement is enabled, the sequence is intentionally serial:
 
@@ -91,19 +94,19 @@ running-model API before ComfyUI is allowed to start.
 - The existing checkpoint and custom nodes required by that workflow
 - For prompt enhancement: Ollama for Windows and the configured local model
 
-The current display metadata assumes the established setup:
+The current display metadata follows the committed workflow settings without
+exposing the private checkpoint name:
 
 | Setting | Value |
 | --- | --- |
-| Model | CyberRealistic Pony V18 |
-| Resolution | 832 x 1152 |
-| Steps | 20 |
-| CFG | 5.0 |
-| Sampler | DPM++ 2M |
+| Resolution | 896 x 1152 |
+| Steps | 8 |
+| CFG | 1.1 |
+| Sampler | LCM |
 | Scheduler | Karras |
 
 These values are not written into the workflow. The exported workflow remains
-the source of truth, including the existing negative prompt, CLIP skip, denoise,
+the source of truth, including the existing negative prompt, optional CLIP skip, denoise,
 batch size, SaveImage configuration, and `--fp32-vae` launch requirement.
 
 ## Installation
@@ -136,18 +139,22 @@ JSON. An API workflow is an object keyed by node IDs, and each node contains
 
 ## Identify the workflow mappings
 
-Open `workflow_api.json` in a text editor and find these three nodes:
+Open `workflow_api.json` in a text editor and find these four nodes:
 
 1. **Positive prompt node:** Find the text-encoding node whose `inputs.text`
    contains the positive prompt. Copy its object key as
    `COMFYUI_POSITIVE_PROMPT_NODE_ID`. In most workflows its input name is
    `text`.
-2. **Seed node:** Find the sampler or noise node whose input contains the seed.
+2. **Checkpoint node:** Find the `CheckpointLoaderSimple` node. Store its object
+   key in `COMFYUI_CHECKPOINT_NODE_ID`, its input name (normally `ckpt_name`) in
+   `COMFYUI_CHECKPOINT_INPUT`, and the private checkpoint filename in
+   `COMFYUI_CHECKPOINT_NAME` inside `.env` only.
+3. **Seed node:** Find the sampler or noise node whose input contains the seed.
    Copy its object key as `COMFYUI_SEED_NODE_ID`. Copy the exact input name,
    commonly `seed` or `noise_seed`, as `COMFYUI_SEED_INPUT`.
    If another processing node also has an independent seed, list it as a
    `nodeId:inputName` pair in `COMFYUI_ADDITIONAL_SEED_MAPPINGS`.
-3. **SaveImage node:** Find the final node whose `class_type` is `SaveImage`. Copy its
+4. **SaveImage node:** Find the final node whose `class_type` is `SaveImage`. Copy its
    object key as `COMFYUI_SAVE_IMAGE_NODE_ID`.
 
 Node IDs are workflow-specific and must not be guessed. The application checks
@@ -159,6 +166,9 @@ Example mapping shape only, using your real IDs:
 ```env
 COMFYUI_POSITIVE_PROMPT_NODE_ID=your-positive-node-id
 COMFYUI_POSITIVE_PROMPT_INPUT=text
+COMFYUI_CHECKPOINT_NODE_ID=your-checkpoint-node-id
+COMFYUI_CHECKPOINT_INPUT=ckpt_name
+COMFYUI_CHECKPOINT_NAME=your-private-checkpoint-filename.safetensors
 COMFYUI_SEED_NODE_ID=your-seed-node-id
 COMFYUI_SEED_INPUT=seed
 COMFYUI_ADDITIONAL_SEED_MAPPINGS=optional-node-id:seed
@@ -216,8 +226,11 @@ Copy `.env.example` to `.env`, then fill in the blank values.
 | `ALLOWED_TELEGRAM_USER_ID` | Yes | Only Telegram account allowed to use the bot |
 | `COMFYUI_BASE_URL` | Yes | Local ComfyUI URL; remote hosts are rejected |
 | `COMFYUI_WORKFLOW_PATH` | Yes | API workflow path, relative to the project root or absolute |
+| `COMFYUI_CHECKPOINT_NAME` | Yes | Private local checkpoint filename; keep it only in `.env` |
 | `COMFYUI_POSITIVE_PROMPT_NODE_ID` | Yes | Positive text node ID |
 | `COMFYUI_POSITIVE_PROMPT_INPUT` | Yes | Positive text input name |
+| `COMFYUI_CHECKPOINT_NODE_ID` | Yes | Checkpoint loader node ID |
+| `COMFYUI_CHECKPOINT_INPUT` | Yes | Checkpoint filename input; normally `ckpt_name` |
 | `COMFYUI_SEED_NODE_ID` | Yes | Sampler/noise seed node ID |
 | `COMFYUI_SEED_INPUT` | Yes | Seed input name |
 | `COMFYUI_ADDITIONAL_SEED_MAPPINGS` | No | Additional `nodeId:inputName` seed mappings, comma-separated |

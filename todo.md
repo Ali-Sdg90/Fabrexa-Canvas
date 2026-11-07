@@ -1,0 +1,6 @@
+- [ ] Write documentations
+- [ ] Add CI/CD
+- [ ] Add public use with limits
+- [ ] Add VIP mode
+- [ ] Add feature to stop gemma reading
+- [ ] Add bot image and meta and og image and etc...

@@ -14,6 +14,7 @@ function serviceConfig(overrides = {}) {
   return {
     baseUrl: "http://127.0.0.1:8188",
     workflowPath: "workflow.json",
+    checkpointName: "private-checkpoint.safetensors",
     pollIntervalMs: 1,
     timeoutMs: 1000,
     requestTimeoutMs: 100,
@@ -50,6 +51,7 @@ test("ComfyUIService initializes from an API workflow and submits it", async () 
   assert.equal(promptId, "prompt-123");
   assert.equal(submittedBody.client_id, "client-123");
   assert.equal(submittedBody.prompt["10"].inputs.text, "A painted forest");
+  assert.equal(submittedBody.prompt["1"].inputs.ckpt_name, "private-checkpoint.safetensors");
   assert.equal(submittedBody.prompt["20"].inputs.seed, 55);
 });
 

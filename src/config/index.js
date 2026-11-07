@@ -187,6 +187,7 @@ export function loadConfig(environment = process.env, { cwd = process.cwd() } = 
     comfyUi: Object.freeze({
       baseUrl: parseComfyUiUrl(environment),
       workflowPath: path.resolve(cwd, workflowPathValue),
+      checkpointName: requireString(environment, "COMFYUI_CHECKPOINT_NAME"),
       pollIntervalMs: parseInteger(environment, "COMFYUI_POLL_INTERVAL_MS", 2000, {
         min: 250,
         max: 60000,
@@ -231,6 +232,8 @@ export function loadConfig(environment = process.env, { cwd = process.cwd() } = 
       mappings: Object.freeze({
         positivePromptNodeId: requireString(environment, "COMFYUI_POSITIVE_PROMPT_NODE_ID"),
         positivePromptInput: requireString(environment, "COMFYUI_POSITIVE_PROMPT_INPUT"),
+        checkpointNodeId: requireString(environment, "COMFYUI_CHECKPOINT_NODE_ID"),
+        checkpointInput: requireString(environment, "COMFYUI_CHECKPOINT_INPUT"),
         seedNodeId: requireString(environment, "COMFYUI_SEED_NODE_ID"),
         seedInput: requireString(environment, "COMFYUI_SEED_INPUT"),
         additionalSeedMappings: parseAdditionalSeedMappings(environment),

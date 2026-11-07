@@ -39,7 +39,6 @@ function formatPrompt(prompt, label = "Full Prompt") {
 
 function formatSettings(settings, seed) {
   return `⚙️ Generation Settings
-Model: ${settings.model}
 Steps: ${settings.steps}
 CFG: ${settings.cfg.toFixed(1)}
 Resolution: ${settings.width} × ${settings.height}

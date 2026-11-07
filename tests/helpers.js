@@ -1,6 +1,8 @@
 export const workflowMappings = Object.freeze({
   positivePromptNodeId: "10",
   positivePromptInput: "text",
+  checkpointNodeId: "1",
+  checkpointInput: "ckpt_name",
   seedNodeId: "20",
   seedInput: "seed",
   additionalSeedMappings: Object.freeze([]),
@@ -9,6 +11,10 @@ export const workflowMappings = Object.freeze({
 
 export function createWorkflow() {
   return {
+    1: {
+      class_type: "CheckpointLoaderSimple",
+      inputs: { ckpt_name: "" },
+    },
     10: {
       class_type: "CLIPTextEncode",
       inputs: { text: "original positive prompt", clip: ["1", 1] },

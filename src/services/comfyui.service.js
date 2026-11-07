@@ -49,6 +49,19 @@ export function validateWorkflowMappings(workflow, mappings) {
     "Positive prompt",
   );
 
+  const checkpointNode = getMappedNode(workflow, mappings.checkpointNodeId, "Checkpoint");
+  assertMappedInput(
+    checkpointNode,
+    mappings.checkpointNodeId,
+    mappings.checkpointInput,
+    "Checkpoint",
+  );
+  if (checkpointNode.class_type !== "CheckpointLoaderSimple") {
+    throw new WorkflowError(
+      `Mapped checkpoint node "${mappings.checkpointNodeId}" must have class_type "CheckpointLoaderSimple".`,
+    );
+  }
+
   const seedNode = getMappedNode(workflow, mappings.seedNodeId, "Seed");
   assertMappedInput(seedNode, mappings.seedNodeId, mappings.seedInput, "Seed");
 
@@ -67,10 +80,11 @@ export function validateWorkflowMappings(workflow, mappings) {
   return true;
 }
 
-export function cloneAndInjectWorkflow(workflow, mappings, { prompt, seed }) {
+export function cloneAndInjectWorkflow(workflow, mappings, { prompt, seed, checkpointName }) {
   validateWorkflowMappings(workflow, mappings);
   const clonedWorkflow = structuredClone(workflow);
   clonedWorkflow[mappings.positivePromptNodeId].inputs[mappings.positivePromptInput] = prompt;
+  clonedWorkflow[mappings.checkpointNodeId].inputs[mappings.checkpointInput] = checkpointName;
   clonedWorkflow[mappings.seedNodeId].inputs[mappings.seedInput] = seed;
   for (const { nodeId, inputName } of mappings.additionalSeedMappings ?? []) {
     clonedWorkflow[nodeId].inputs[inputName] = seed;
@@ -224,7 +238,11 @@ export class ComfyUIService {
     if (!this.baseWorkflow) {
       throw new WorkflowError("ComfyUI service must be initialized before creating a workflow.");
     }
-    return cloneAndInjectWorkflow(this.baseWorkflow, this.config.mappings, { prompt, seed });
+    return cloneAndInjectWorkflow(this.baseWorkflow, this.config.mappings, {
+      prompt,
+      seed,
+      checkpointName: this.config.checkpointName,
+    });
   }
 
   async submitWorkflow(workflow) {

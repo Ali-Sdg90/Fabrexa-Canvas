@@ -11,8 +11,11 @@ function validEnvironment(overrides = {}) {
     ALLOWED_TELEGRAM_USER_ID: "123456789",
     COMFYUI_BASE_URL: "http://127.0.0.1:8188",
     COMFYUI_WORKFLOW_PATH: "./workflow.json",
+    COMFYUI_CHECKPOINT_NAME: "private-checkpoint.safetensors",
     COMFYUI_POSITIVE_PROMPT_NODE_ID: "10",
     COMFYUI_POSITIVE_PROMPT_INPUT: "text",
+    COMFYUI_CHECKPOINT_NODE_ID: "1",
+    COMFYUI_CHECKPOINT_INPUT: "ckpt_name",
     COMFYUI_SEED_NODE_ID: "20",
     COMFYUI_SEED_INPUT: "seed",
     COMFYUI_ADDITIONAL_SEED_MAPPINGS: "79:seed, 91:noise_seed",
@@ -26,6 +29,7 @@ test("loadConfig validates and normalizes a complete environment", () => {
 
   assert.equal(config.telegram.allowedUserId, "123456789");
   assert.equal(config.comfyUi.baseUrl, "http://127.0.0.1:8188");
+  assert.equal(config.comfyUi.checkpointName, "private-checkpoint.safetensors");
   assert.equal(config.comfyUi.pollIntervalMs, 2000);
   assert.equal(config.comfyUi.mappings.positivePromptNodeId, "10");
   assert.deepEqual(config.comfyUi.mappings.additionalSeedMappings, [
@@ -41,8 +45,9 @@ test("loadConfig validates and normalizes a complete environment", () => {
   assert.match(config.ollama.model, /Gemma-The-Writer-9B/);
   assert.equal(config.ollama.numCtx, 8192);
   assert.equal(path.basename(config.activityLog.filePath), "activity-log.json");
-  assert.equal(config.generation.width, 832);
+  assert.equal(config.generation.width, 896);
   assert.equal(config.generation.height, 1152);
+  assert.equal(config.generation.clipSkip, null);
 });
 
 test("loadConfig rejects missing secrets and mappings", () => {
@@ -53,6 +58,10 @@ test("loadConfig rejects missing secrets and mappings", () => {
   assert.throws(
     () => loadConfig(validEnvironment({ COMFYUI_SEED_NODE_ID: "" })),
     (error) => error instanceof ConfigError && /COMFYUI_SEED_NODE_ID/.test(error.message),
+  );
+  assert.throws(
+    () => loadConfig(validEnvironment({ COMFYUI_CHECKPOINT_NAME: "" })),
+    (error) => error instanceof ConfigError && /COMFYUI_CHECKPOINT_NAME/.test(error.message),
   );
 });
 
