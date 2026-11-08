@@ -25,6 +25,7 @@ test("GenerationService uses the configured fixed seed without generating a rand
   assert.deepEqual(service.prepareRequest(" A portrait "), {
     prompt: "A portrait",
     seed: 451905041881905,
+    useGemma: false,
   });
   assert.equal(randomSeedCalls, 0);
 });
@@ -63,20 +64,25 @@ function successfulComfyUi(events) {
   };
 }
 
-test("GenerationService preserves direct prompt generation when enhancement is disabled", async () => {
+test("GenerationService bypasses Gemma when the account selects direct mode", async () => {
   const events = [];
   const service = new GenerationService({
     promptService,
     comfyUiService: successfulComfyUi(events),
-    promptEnhancementService: { enabled: false },
+    promptEnhancementService: {
+      enabled: true,
+      async enhance() {
+        throw new Error("Gemma must not run for a direct request");
+      },
+    },
     gpuHandoffService: {
       prepareForLanguageModel() {
-        throw new Error("GPU handoff must not run when enhancement is disabled");
+        throw new Error("GPU handoff must not run for a direct request");
       },
     },
   });
 
-  const result = await service.generate({ prompt: "raw scene", seed: 42 });
+  const result = await service.generate({ prompt: "raw scene", seed: 42, useGemma: false });
 
   assert.equal(result.prompt, "raw scene");
   assert.equal(result.enhanced, false);
@@ -122,7 +128,7 @@ test("GenerationService runs the full enhanced prompt pipeline inside one job", 
   });
 
   const result = await service.generate(
-    { prompt: "raw story", seed: 42 },
+    { prompt: "raw story", seed: 42, useGemma: true },
     { onStage: async ({ stage }) => stages.push(stage) },
   );
 
@@ -159,7 +165,7 @@ test("GenerationService can explicitly fall back only after a prompt-validation 
     },
   });
 
-  const result = await service.generate({ prompt: "raw story", seed: 42 });
+  const result = await service.generate({ prompt: "raw story", seed: 42, useGemma: true });
 
   assert.equal(result.prompt, "raw story");
   assert.equal(result.fallbackUsed, true);

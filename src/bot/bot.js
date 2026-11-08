@@ -2,17 +2,28 @@ import { Telegraf } from "telegraf";
 
 import { UpdateDeduplicator } from "../utils/update-deduplicator.js";
 import { telegramChatIdFromContext, telegramUserFromContext } from "../utils/telegram-user.js";
+import { recordChatSafely } from "./conversation-memory.js";
+import { createGenerationModeHandler } from "./handlers/generation-mode.handler.js";
 import { createImageHandler } from "./handlers/image.handler.js";
 import { createStartHandler } from "./handlers/start.handler.js";
-import { PRIVATE_BOT_MESSAGE, TEXT_ONLY_MESSAGE } from "./messages.js";
+import {
+  GEMMA_OFF_CALLBACK,
+  GEMMA_ON_CALLBACK,
+  PRIVATE_BOT_MESSAGE,
+  TEXT_ONLY_MESSAGE,
+} from "./messages.js";
 
-export function isAuthorizedUser(context, allowedUserId) {
-  return context.from?.id != null && String(context.from.id) === String(allowedUserId);
+export function isAuthorizedUser(context, allowedUserIds) {
+  const normalizedIds = Array.isArray(allowedUserIds) ? allowedUserIds : [allowedUserIds];
+  return (
+    context.from?.id != null &&
+    normalizedIds.some((allowedUserId) => String(context.from.id) === String(allowedUserId))
+  );
 }
 
-export function createAccessMiddleware(allowedUserId) {
+export function createAccessMiddleware(allowedUserIds) {
   return async (context, next) => {
-    if (!isAuthorizedUser(context, allowedUserId)) {
+    if (!isAuthorizedUser(context, allowedUserIds)) {
       if (typeof context.reply === "function") {
         await context.reply(PRIVATE_BOT_MESSAGE);
       }
@@ -39,7 +50,7 @@ function isStartCommand(context) {
   return typeof firstToken === "string" && /^\/start(?:@[a-z0-9_]+)?$/i.test(firstToken);
 }
 
-export function createStartLoggingMiddleware({ activityLogService, allowedUserId, logger }) {
+export function createStartLoggingMiddleware({ activityLogService, allowedUserIds, logger }) {
   return async (context, next) => {
     if (isStartCommand(context)) {
       try {
@@ -48,7 +59,7 @@ export function createStartLoggingMiddleware({ activityLogService, allowedUserId
           telegramUpdateId: context.update?.update_id ?? null,
           chatId: telegramChatIdFromContext(context),
           user: telegramUserFromContext(context),
-          authorized: isAuthorizedUser(context, allowedUserId),
+          authorized: isAuthorizedUser(context, allowedUserIds),
         });
       } catch (error) {
         logger.error("Could not record the Telegram start event.", {
@@ -66,6 +77,7 @@ export function createBot({
   generationService,
   generationQueue,
   activityLogService,
+  userDataService,
   logger,
   botFactory,
 }) {
@@ -79,12 +91,26 @@ export function createBot({
   bot.use(
     createStartLoggingMiddleware({
       activityLogService,
-      allowedUserId: config.telegram.allowedUserId,
+      allowedUserIds: config.telegram.allowedUserIds,
       logger,
     }),
   );
-  bot.use(createAccessMiddleware(config.telegram.allowedUserId));
-  bot.start(createStartHandler());
+  bot.use(createAccessMiddleware(config.telegram.allowedUserIds));
+  bot.start(
+    createStartHandler({
+      userDataService,
+      enhancementAvailable: generationService.enhancementAvailable,
+      logger,
+    }),
+  );
+  const generationModeHandler = createGenerationModeHandler({
+    userDataService,
+    activityLogService,
+    enhancementAvailable: generationService.enhancementAvailable,
+    logger,
+  });
+  bot.action(GEMMA_ON_CALLBACK, generationModeHandler);
+  bot.action(GEMMA_OFF_CALLBACK, generationModeHandler);
   bot.on(
     "text",
     createImageHandler({
@@ -94,11 +120,28 @@ export function createBot({
       promptMaxLength: config.prompt.maxLength,
       actionIntervalMs: config.telegram.actionIntervalMs,
       activityLogService,
+      userDataService,
       logger,
     }),
   );
   bot.on("message", async (context) => {
+    await recordChatSafely({
+      userDataService,
+      context,
+      role: "user",
+      type: "unsupported_message",
+      text: "[Non-text Telegram message]",
+      logger,
+    });
     await context.reply(TEXT_ONLY_MESSAGE);
+    await recordChatSafely({
+      userDataService,
+      context,
+      role: "assistant",
+      type: "error",
+      text: TEXT_ONLY_MESSAGE,
+      logger,
+    });
   });
 
   bot.catch(async (error, context) => {
@@ -108,7 +151,18 @@ export function createBot({
       chatId: context.chat?.id,
     });
     try {
-      await context.reply("Something went wrong while handling that message. Please try again.");
+      const message = "Something went wrong while handling that message. Please try again.";
+      await context.reply(message);
+      if (isAuthorizedUser(context, config.telegram.allowedUserIds)) {
+        await recordChatSafely({
+          userDataService,
+          context,
+          role: "assistant",
+          type: "error",
+          text: message,
+          logger,
+        });
+      }
     } catch (replyError) {
       logger.error("Could not send Telegram error response.", { error: replyError });
     }

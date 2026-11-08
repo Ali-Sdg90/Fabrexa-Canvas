@@ -10,6 +10,7 @@ import { GpuHandoffService } from "./services/gpu-handoff.service.js";
 import { OllamaService } from "./services/ollama.service.js";
 import { PromptEnhancementService } from "./services/prompt-enhancement.service.js";
 import { PromptService } from "./services/prompt.service.js";
+import { UserDataService } from "./services/user-data.service.js";
 import { createLogger } from "./utils/logger.js";
 
 async function main() {
@@ -42,6 +43,7 @@ async function main() {
     logger,
   });
   const activityLogService = new ActivityLogService({ ...config.activityLog, logger });
+  const userDataService = new UserDataService({ ...config.userData, logger });
   const promptService = new PromptService(config.prompt);
   const generationQueue = new GenerationQueue({ ...config.queue, logger });
   const generationService = new GenerationService({
@@ -54,6 +56,7 @@ async function main() {
 
   try {
     await activityLogService.initialize();
+    await userDataService.initialize();
     await comfyUiService.initialize();
     await promptEnhancementService.initialize();
   } catch (error) {
@@ -67,6 +70,7 @@ async function main() {
     generationService,
     generationQueue,
     activityLogService,
+    userDataService,
     logger,
   });
   let stopping = false;
@@ -88,7 +92,7 @@ async function main() {
   });
 
   try {
-    await bot.launch({ allowedUpdates: ["message"] });
+    await bot.launch({ allowedUpdates: ["message", "callback_query"] });
     logger.info("Fabrexa Canvas is running with Telegram long polling.");
   } catch (error) {
     logger.error("Telegram polling could not start.", { error });

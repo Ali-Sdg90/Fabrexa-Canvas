@@ -66,12 +66,28 @@ function parseOptionalSeed(environment) {
   return value;
 }
 
-function parseTelegramUserId(environment) {
-  const value = requireString(environment, "ALLOWED_TELEGRAM_USER_ID");
-  if (!/^\d+$/.test(value) || value === "0") {
-    throw new ConfigError("ALLOWED_TELEGRAM_USER_ID must be a positive numeric Telegram user ID.");
+function parseTelegramUserIds(environment) {
+  const rawValue =
+    environment.ALLOWED_TELEGRAM_USER_IDS?.trim() ||
+    environment.ALLOWED_TELEGRAM_USER_ID?.trim();
+  if (!rawValue) {
+    throw new ConfigError(
+      "Missing required environment variable: ALLOWED_TELEGRAM_USER_IDS (or legacy ALLOWED_TELEGRAM_USER_ID).",
+    );
   }
-  return value;
+
+  const userIds = rawValue.split(",").map((value) => value.trim());
+  if (userIds.some((value) => !/^\d+$/.test(value) || value === "0")) {
+    throw new ConfigError(
+      "ALLOWED_TELEGRAM_USER_IDS must contain comma-separated positive numeric Telegram user IDs.",
+    );
+  }
+
+  const uniqueUserIds = [...new Set(userIds)];
+  if (uniqueUserIds.length !== userIds.length) {
+    throw new ConfigError("ALLOWED_TELEGRAM_USER_IDS contains a duplicate Telegram user ID.");
+  }
+  return Object.freeze(uniqueUserIds);
 }
 
 function parseComfyUiUrl(environment) {
@@ -169,6 +185,12 @@ export function loadConfig(environment = process.env, { cwd = process.cwd() } = 
     "ACTIVITY_LOG_PATH",
     "./data/activity-log.json",
   );
+  const userDataRootValue = optionalString(environment, "USER_DATA_ROOT", "./data/users");
+  const globalMemoryPathValue = optionalString(
+    environment,
+    "GLOBAL_MEMORY_PATH",
+    "./data/global-memory.json",
+  );
   const systemPromptPathValue = optionalString(
     environment,
     "OLLAMA_SYSTEM_PROMPT_PATH",
@@ -178,7 +200,7 @@ export function loadConfig(environment = process.env, { cwd = process.cwd() } = 
   return Object.freeze({
     telegram: Object.freeze({
       botToken: requireString(environment, "TELEGRAM_BOT_TOKEN"),
-      allowedUserId: parseTelegramUserId(environment),
+      allowedUserIds: parseTelegramUserIds(environment),
       actionIntervalMs: parseInteger(environment, "TELEGRAM_ACTION_INTERVAL_MS", 4000, {
         min: 1000,
         max: 15000,
@@ -247,7 +269,7 @@ export function loadConfig(environment = process.env, { cwd = process.cwd() } = 
       fixed: parseOptionalSeed(environment),
     }),
     promptEnhancement: Object.freeze({
-      enabled: parseBoolean(environment, "PROMPT_ENHANCEMENT_ENABLED", false),
+      enabled: parseBoolean(environment, "PROMPT_ENHANCEMENT_AVAILABLE", true),
       fallbackToRaw: parseBoolean(environment, "PROMPT_ENHANCEMENT_FALLBACK_TO_RAW", false),
       maxOutputLength: parseInteger(environment, "PROMPT_ENHANCEMENT_MAX_LENGTH", 2400, {
         min: 100,
@@ -306,6 +328,11 @@ export function loadConfig(environment = process.env, { cwd = process.cwd() } = 
     }),
     activityLog: Object.freeze({
       filePath: path.resolve(cwd, activityLogPathValue),
+      timeZone: parseTimeZone(environment),
+    }),
+    userData: Object.freeze({
+      rootDirectory: path.resolve(cwd, userDataRootValue),
+      globalMemoryPath: path.resolve(cwd, globalMemoryPathValue),
       timeZone: parseTimeZone(environment),
     }),
     logging: Object.freeze({ level: parseLogLevel(environment) }),

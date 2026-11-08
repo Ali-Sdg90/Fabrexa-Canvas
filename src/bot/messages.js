@@ -11,11 +11,39 @@ import {
   QueueFullError,
 } from "../utils/errors.js";
 
-export const WELCOME_MESSAGE = `Welcome to Fabrexa Canvas! 🎨
+export const GEMMA_ON_CALLBACK = "generation-mode:gemma";
+export const GEMMA_OFF_CALLBACK = "generation-mode:direct";
+
+export function welcomeMessage(currentPreference, { gemmaAvailable = true } = {}) {
+  const currentMode =
+    currentPreference === null
+      ? "No mode selected yet."
+      : formatModeState(currentPreference, { includeEstimate: false });
+  const gemmaNote = gemmaAvailable
+    ? "Choose whether Gemma should refine each prompt before image generation:"
+    : "Gemma is disabled by the application configuration. Direct mode is available:";
+
+  return `Welcome to Fabrexa Canvas! 🎨
 
 Turn your imagination into images.
 
-Send me a description of what you'd like to create, and I'll bring it to life.`;
+${gemmaNote}
+
+${currentMode}`;
+}
+
+export function preferenceSavedMessage(gemmaEnabled) {
+  return `✅ Generation mode saved.
+
+${formatModeState(gemmaEnabled)}
+
+Send me a description of the image you'd like to create.`;
+}
+
+export const PREFERENCE_REQUIRED_MESSAGE = `Please use /start and choose a generation mode before sending an image prompt.`;
+
+export const GEMMA_UNAVAILABLE_MESSAGE =
+  "Gemma prompt enhancement is disabled by the application configuration. Choose Direct mode or enable it in the environment configuration.";
 
 export const PRIVATE_BOT_MESSAGE = "Sorry, Fabrexa Canvas is a private bot.";
 export const UNKNOWN_COMMAND_MESSAGE =
@@ -46,54 +74,73 @@ Sampler: ${settings.sampler} / ${settings.scheduler}
 Seed: ${seed}`;
 }
 
-export function understandingSceneMessage({ prompt }) {
+function formatModeState(gemmaEnabled, { includeEstimate = true } = {}) {
+  const state = gemmaEnabled ? "Enabled" : "Disabled";
+  const route = gemmaEnabled
+    ? "Your prompt will be refined by Gemma before image generation."
+    : "Your prompt will go directly to the image model.";
+  const estimate = gemmaEnabled ? 35 : 20;
+  const estimateLine = includeEstimate
+    ? `\n⏱ Estimated generation time: about ${estimate} seconds.`
+    : "";
+  return `🧠 Gemma: ${state}\n${route}${estimateLine}`;
+}
+
+export function understandingSceneMessage({ prompt, useGemma }) {
   return `🧭 Understanding your scene...
 
 ${formatPrompt(prompt, "Original Request")}
 
+${formatModeState(useGemma)}
+
 ⏳ Preparing a focused visual prompt...`;
 }
 
-export function preparingImageMessage({ prompt, seed }, settings) {
+export function preparingImageMessage({ prompt, seed, useGemma }, settings) {
   return `🔄 Preparing image generation...
 
 ${formatPrompt(prompt, "Enhanced Prompt")}
 
 ${formatSettings(settings, seed)}
 
+${formatModeState(useGemma)}
+
 ⏳ Releasing the scene model and preparing ComfyUI...`;
 }
 
-export function creatingMessage({ prompt, seed }, settings, { includeEstimate = true } = {}) {
-  const estimate = includeEstimate
-    ? "\n\n⏱ Your image should be ready in about 45 seconds."
-    : "";
+export function creatingMessage({ prompt, seed, useGemma }, settings) {
   return `🎨 Creating your image...
 
 ${formatFullPrompt(prompt)}
 
-${formatSettings(settings, seed)}${estimate}
+${formatSettings(settings, seed)}
+
+${formatModeState(useGemma)}
 
 ⏳ Generating...`;
 }
 
-export function queuedMessage({ prompt, seed }, settings, position) {
+export function queuedMessage({ prompt, seed, useGemma }, settings, position) {
   return `🎨 Your request is queued.
 
 ${formatFullPrompt(prompt)}
 
 ${formatSettings(settings, seed)}
 
+${formatModeState(useGemma)}
+
 ⏳ Queue position: ${position}`;
 }
 
-export function completedMessage({ prompt, seed }, settings, durationMs) {
+export function completedMessage({ prompt, seed, useGemma }, settings, durationMs) {
   const durationSeconds = (durationMs / 1000).toFixed(1);
   return `✅ Your image is ready!
 
 ${formatFullPrompt(prompt)}
 
 ${formatSettings(settings, seed)}
+
+${formatModeState(useGemma, { includeEstimate: false })}
 
 ⏱ Completed in ${durationSeconds} seconds.
 

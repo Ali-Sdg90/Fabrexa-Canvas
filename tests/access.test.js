@@ -10,14 +10,16 @@ import { PRIVATE_BOT_MESSAGE } from "../src/bot/messages.js";
 import { silentLogger } from "./helpers.js";
 
 test("isAuthorizedUser compares Telegram IDs without numeric coercion", () => {
-  assert.equal(isAuthorizedUser({ from: { id: 123456789 } }, "123456789"), true);
-  assert.equal(isAuthorizedUser({ from: { id: 987654321 } }, "123456789"), false);
-  assert.equal(isAuthorizedUser({}, "123456789"), false);
+  const allowedUserIds = ["123456789", "987654321"];
+  assert.equal(isAuthorizedUser({ from: { id: 123456789 } }, allowedUserIds), true);
+  assert.equal(isAuthorizedUser({ from: { id: 987654321 } }, allowedUserIds), true);
+  assert.equal(isAuthorizedUser({ from: { id: 222222222 } }, allowedUserIds), false);
+  assert.equal(isAuthorizedUser({}, allowedUserIds), false);
 });
 
 test("access middleware allows the configured Telegram user", async () => {
   let nextCalled = false;
-  const middleware = createAccessMiddleware("123456789");
+  const middleware = createAccessMiddleware(["123456789"]);
 
   await middleware({ from: { id: 123456789 } }, async () => {
     nextCalled = true;
@@ -29,7 +31,7 @@ test("access middleware allows the configured Telegram user", async () => {
 test("access middleware rejects another Telegram user", async () => {
   let nextCalled = false;
   const replies = [];
-  const middleware = createAccessMiddleware("123456789");
+  const middleware = createAccessMiddleware(["123456789"]);
 
   await middleware(
     {
@@ -54,7 +56,7 @@ test("start logging middleware records who started the bot before access control
         events.push(event);
       },
     },
-    allowedUserId: "123456789",
+    allowedUserIds: ["123456789"],
     logger: silentLogger,
   });
 

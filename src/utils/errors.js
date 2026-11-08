@@ -55,6 +55,12 @@ export class ActivityLogError extends AppError {
   }
 }
 
+export class UserDataError extends AppError {
+  constructor(message, options = {}) {
+    super(message, { code: "USER_DATA_ERROR", ...options });
+  }
+}
+
 export class OllamaError extends AppError {
   constructor(message, options = {}) {
     super(message, { code: "OLLAMA_ERROR", ...options });

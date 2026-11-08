@@ -27,7 +27,7 @@ function validEnvironment(overrides = {}) {
 test("loadConfig validates and normalizes a complete environment", () => {
   const config = loadConfig(validEnvironment(), { cwd: process.cwd() });
 
-  assert.equal(config.telegram.allowedUserId, "123456789");
+  assert.deepEqual(config.telegram.allowedUserIds, ["123456789"]);
   assert.equal(config.comfyUi.baseUrl, "http://127.0.0.1:8188");
   assert.equal(config.comfyUi.checkpointName, "private-checkpoint.safetensors");
   assert.equal(config.comfyUi.pollIntervalMs, 2000);
@@ -38,13 +38,15 @@ test("loadConfig validates and normalizes a complete environment", () => {
   ]);
   assert.equal(config.activityLog.timeZone, "Asia/Tehran");
   assert.equal(config.seed.fixed, null);
-  assert.equal(config.promptEnhancement.enabled, false);
+  assert.equal(config.promptEnhancement.enabled, true);
   assert.equal(config.promptEnhancement.fallbackToRaw, false);
   assert.equal(config.prompt.maxLength, 3500);
   assert.equal(config.ollama.baseUrl, "http://127.0.0.1:11434");
   assert.match(config.ollama.model, /Gemma-The-Writer-9B/);
   assert.equal(config.ollama.numCtx, 8192);
   assert.equal(path.basename(config.activityLog.filePath), "activity-log.json");
+  assert.equal(path.basename(config.userData.rootDirectory), "users");
+  assert.equal(path.basename(config.userData.globalMemoryPath), "global-memory.json");
   assert.equal(config.generation.width, 896);
   assert.equal(config.generation.height, 1152);
   assert.equal(config.generation.clipSkip, null);
@@ -80,12 +82,40 @@ test("loadConfig rejects a non-loopback Ollama endpoint", () => {
 });
 
 test("loadConfig validates prompt-enhancement booleans", () => {
-  const enabled = loadConfig(validEnvironment({ PROMPT_ENHANCEMENT_ENABLED: "true" }));
-  assert.equal(enabled.promptEnhancement.enabled, true);
+  const enabled = loadConfig(
+    validEnvironment({ PROMPT_ENHANCEMENT_FALLBACK_TO_RAW: "true" }),
+  );
+  assert.equal(enabled.promptEnhancement.fallbackToRaw, true);
+
+  const unavailable = loadConfig(
+    validEnvironment({ PROMPT_ENHANCEMENT_AVAILABLE: "false" }),
+  );
+  assert.equal(unavailable.promptEnhancement.enabled, false);
 
   assert.throws(
     () => loadConfig(validEnvironment({ OLLAMA_AUTO_START: "sometimes" })),
     (error) => error instanceof ConfigError && /true or false/.test(error.message),
+  );
+});
+
+test("loadConfig supports multiple authorized Telegram accounts", () => {
+  const config = loadConfig(
+    validEnvironment({
+      ALLOWED_TELEGRAM_USER_ID: "",
+      ALLOWED_TELEGRAM_USER_IDS: "123456789,987654321",
+    }),
+  );
+
+  assert.deepEqual(config.telegram.allowedUserIds, ["123456789", "987654321"]);
+  assert.throws(
+    () =>
+      loadConfig(
+        validEnvironment({
+          ALLOWED_TELEGRAM_USER_ID: "",
+          ALLOWED_TELEGRAM_USER_IDS: "123456789,123456789",
+        }),
+      ),
+    (error) => error instanceof ConfigError && /duplicate/.test(error.message),
   );
 });
 

@@ -10,16 +10,18 @@ polling, keeps ComfyUI on localhost, and does not create duplicate image files.
 
 ## Features
 
-- Private access through one allowed Telegram user ID
+- Private access through one or more allowed Telegram user IDs
 - FIFO queue with one active generation and a bounded waiting list
 - Direct prompt and random-seed injection into an existing API workflow
-- Optional local Gemma scene direction for stories and complex multi-subject scenes
+- Per-account choice between direct generation and local Gemma scene direction
 - Automatic background Ollama startup on Windows, with no desktop UI required
 - Sequential ComfyUI-to-Ollama-to-ComfyUI GPU handoff with bounded verification
 - Explicit workflow node mappings validated during startup
 - ComfyUI completion, failure, and timeout detection
 - Telegram photo delivery with a linked Fabrexa Canvas attribution
-- Local JSON activity history for starts, prompts, and generated filenames
+- Per-account preferences and complete JSON chat histories
+- Aggregated global JSON conversation memory across authorized accounts
+- Local JSON activity history for starts, mode changes, prompts, and generated files
 - Periodic `typing` activity while ComfyUI is working
 - Graceful polling shutdown and structured diagnostic logs
 - Automated tests that do not need Telegram, ComfyUI, or a GPU
@@ -57,6 +59,7 @@ src/
     ollama.service.js            Local server, model inference and unload lifecycle
     prompt-enhancement.service.js  Scene prompt loading and output validation
     prompt.service.js            Incoming Telegram prompt validation
+    user-data.service.js         Per-account settings, chats, and global memory
   prompts/
     scene-director.txt           Maintainable Gemma system prompt
   utils/                         Errors, logging, seed and update utilities
@@ -73,7 +76,7 @@ returns immediately while the queued job continues in a guarded background
 task. This keeps long polling responsive and avoids Telegraf's per-update
 90-second timeout during local generation.
 
-When enhancement is enabled, the sequence is intentionally serial:
+When an account selects Gemma, the sequence is intentionally serial:
 
 ```text
 ComfyUI idle -> unload ComfyUI models -> Gemma inference -> verify Gemma unload
@@ -88,7 +91,7 @@ running-model API before ComfyUI is allowed to start.
 
 - Windows with Node.js 22+
 - A Telegram bot token from BotFather
-- Your numeric Telegram user ID
+- The numeric Telegram user ID for every account that may use the bot
 - ComfyUI running locally at `http://127.0.0.1:8188`
 - The working ComfyUI workflow exported in API format
 - The existing checkpoint and custom nodes required by that workflow
@@ -197,7 +200,6 @@ ollama pull hf.co/mradermacher/Gemma-The-Writer-9B-HERETIC-Uncensored-Abliterate
 Then set:
 
 ```env
-PROMPT_ENHANCEMENT_ENABLED=true
 OLLAMA_MODEL=hf.co/mradermacher/Gemma-The-Writer-9B-HERETIC-Uncensored-Abliterated-i1-GGUF:Q6_K
 OLLAMA_AUTO_START=true
 OLLAMA_EXECUTABLE_PATH=ollama
@@ -207,8 +209,11 @@ OLLAMA_EXECUTABLE_PATH=ollama
 enhanced request, the app probes the local HTTP endpoint. If it is unavailable,
 the app starts `ollama serve` as a hidden background process and waits for API
 readiness. It reuses an already-running server and does not stop an externally
-managed one. Set `PROMPT_ENHANCEMENT_ENABLED=false` to restore the direct-prompt
-pipeline with no Ollama calls or GPU handoff work.
+managed one. Each account chooses Gemma or Direct mode from the `/start` buttons.
+Direct requests make no Ollama call and perform no language-model GPU handoff.
+`PROMPT_ENHANCEMENT_AVAILABLE=false` is an optional administrator kill switch
+that hides Gemma mode. The old `PROMPT_ENHANCEMENT_ENABLED` variable is ignored
+because mode selection now belongs to each account.
 
 The system prompt lives in `src/prompts/scene-director.txt`. It instructs Gemma
 to choose one visually coherent still frame, preserve subjects and constraints,
@@ -223,7 +228,8 @@ Copy `.env.example` to `.env`, then fill in the blank values.
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | Yes | Token issued by BotFather |
-| `ALLOWED_TELEGRAM_USER_ID` | Yes | Only Telegram account allowed to use the bot |
+| `ALLOWED_TELEGRAM_USER_IDS` | Yes | Comma-separated Telegram user IDs allowed to use the bot |
+| `ALLOWED_TELEGRAM_USER_ID` | Legacy | Backward-compatible single-account alternative |
 | `COMFYUI_BASE_URL` | Yes | Local ComfyUI URL; remote hosts are rejected |
 | `COMFYUI_WORKFLOW_PATH` | Yes | API workflow path, relative to the project root or absolute |
 | `COMFYUI_CHECKPOINT_NAME` | Yes | Private local checkpoint filename; keep it only in `.env` |
@@ -244,11 +250,11 @@ Copy `.env.example` to `.env`, then fill in the blank values.
 | `COMFYUI_CLEANUP_MIN_RELEASE_MB` | No | Minimum observed VRAM release accepted by cleanup; default `64` |
 | `COMFYUI_CLEANUP_FREE_RATIO` | No | Free-VRAM ratio also accepted as ready; default `0.7` |
 | `COMFYUI_CLEANUP_STABLE_SAMPLES` | No | Stable VRAM samples required before Gemma starts; default `2` |
-| `PROMPT_ENHANCEMENT_ENABLED` | No | Enables the full local Gemma pipeline; default `false` |
+| `PROMPT_ENHANCEMENT_AVAILABLE` | No | Administrator switch for exposing Gemma mode; default `true` |
 | `PROMPT_ENHANCEMENT_FALLBACK_TO_RAW` | No | Allows raw fallback only for unusable Gemma text; default `false` |
 | `PROMPT_ENHANCEMENT_MAX_LENGTH` | No | Maximum validated Gemma prompt length; default `2400` |
 | `OLLAMA_BASE_URL` | No | Local Ollama endpoint; default `http://127.0.0.1:11434` |
-| `OLLAMA_MODEL` | When enabled | Exact locally installed scene model name |
+| `OLLAMA_MODEL` | When Gemma is selected | Exact locally installed scene model name |
 | `OLLAMA_AUTO_START` | No | Starts `ollama serve` when needed; default `true` |
 | `OLLAMA_EXECUTABLE_PATH` | No | Command or full path for `ollama.exe`; default `ollama` |
 | `OLLAMA_STARTUP_TIMEOUT_MS` | No | Bounded API-readiness wait; default `30000` |
@@ -265,6 +271,8 @@ Copy `.env.example` to `.env`, then fill in the blank values.
 | `PROMPT_MAX_LENGTH` | No | Maximum input characters; default `3500` |
 | `ACTIVITY_LOG_PATH` | No | Local JSON activity file; default `./data/activity-log.json` |
 | `ACTIVITY_LOG_TIME_ZONE` | No | Local timestamp time zone; default `Asia/Tehran` |
+| `USER_DATA_ROOT` | No | Per-account data root; default `./data/users` |
+| `GLOBAL_MEMORY_PATH` | No | Aggregated conversation memory; default `./data/global-memory.json` |
 | `LOG_LEVEL` | No | `debug`, `info`, `warn`, or `error` |
 
 `COMFYUI_BASE_URL` accepts only loopback hosts (`127.0.0.1`, `localhost`, or
@@ -310,6 +318,10 @@ Welcome to Fabrexa Canvas! 🎨
 
 Turn your imagination into images.
 
+Choose whether Gemma should refine each prompt before image generation:
+
+[✨ Use Gemma] [⚡ Direct mode]
+
 Send me a description of what you'd like to create, and I'll bring it to life.
 
 You: A mysterious vampire queen inside a gothic castle.
@@ -320,18 +332,31 @@ Fabrexa Canvas:
 ```
 
 Telegram displays `typing` throughout scene understanding and image generation.
+Every generation status states whether Gemma is enabled. Gemma mode shows an
+estimated time of about 35 seconds, while Direct mode shows about 20 seconds.
 For enhanced requests, the status advances from "Understanding your scene" to
 "Preparing image generation" and then "Creating your image". The final positive
 prompt actually sent to ComfyUI appears inside a collapsed expandable
-blockquote. No fixed 45-second estimate is shown for the enhanced pipeline.
+blockquote.
 When generation finishes, the bot keeps the final prompt, settings, seed, and
 total duration in the status message, switches to `upload_photo`, and sends only
 the image. Its caption contains only the linked Fabrexa Canvas attribution.
 
-## Activity history
+## Per-account data and activity history
+
+Each authorized account gets its own directory at `data/users/<telegram-id>/`:
+
+- `preferences.json` stores the account's Gemma mode.
+- `chats.json` stores user messages, bot replies, generation statuses, mode
+  changes, completion messages, and image-delivery records.
+
+`data/global-memory.json` stores the same conversation entries across all
+authorized accounts in one chronological JSON array. Writes are serialized and
+use atomic temporary-file replacement. These files contain private data and are
+ignored by Git by default.
 
 The bot creates `data/activity-log.json` as a JSON array. It records `/start`
-attempts, accepted prompts, and successful generations with UTC and Tehran
+attempts, mode changes, accepted prompts, and successful generations with UTC and Tehran
 timestamps, Telegram identity details, prompt text, seed, prompt ID, duration,
 and the generated filename where applicable. Enhanced generations also record
 the original request, the final prompt, fallback status, and per-stage timings.
@@ -363,9 +388,9 @@ Telegram, ComfyUI, or the GPU.
 
 With ComfyUI running and the configured Ollama model installed:
 
-1. Set `PROMPT_ENHANCEMENT_ENABLED=true` and start the bot with
-   `npm.cmd start`. Leave the Ollama desktop application closed.
-2. Send a narrative scene to the Telegram bot.
+1. Start the bot with `npm.cmd start`. Leave the Ollama desktop application
+   closed.
+2. Run `/start`, select Gemma, and send a narrative scene to the Telegram bot.
 3. Confirm the status moves through scene understanding, handoff, and image
    generation, then returns a photo whose final status shows the enhanced
    prompt.

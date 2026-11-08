@@ -9,5 +9,8 @@ coverage/
 *.log
 data/activity-log.json
 data/activity-log.json.tmp-*
+data/users/
+data/global-memory.json
+data/global-memory.json.tmp-*
 .DS_Store
 Thumbs.db

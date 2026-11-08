@@ -7,6 +7,17 @@ import { GENERATION_SETTINGS } from "../src/config/generation.config.js";
 import { GenerationQueue } from "../src/services/generation-queue.service.js";
 import { silentLogger } from "./helpers.js";
 
+function createUserDataService(gemmaEnabled, chatEntries = []) {
+  return {
+    async getGemmaPreference() {
+      return gemmaEnabled;
+    },
+    async appendChat(entry) {
+      chatEntries.push(entry);
+    },
+  };
+}
+
 test("image handler types while generating, then uploads only a photo", async () => {
   const calls = [];
   const activityEvents = [];
@@ -15,8 +26,9 @@ test("image handler types while generating, then uploads only a photo", async ()
   const generationQueue = new GenerationQueue({ maxSize: 2, logger: silentLogger });
   const handler = createImageHandler({
     generationService: {
-      prepareRequest(prompt) {
-        return { prompt, seed: 12345 };
+      enhancementAvailable: false,
+      prepareRequest(prompt, { useGemma }) {
+        return { prompt, seed: 12345, useGemma };
       },
       async generate() {
         return {
@@ -40,6 +52,7 @@ test("image handler types while generating, then uploads only a photo", async ()
         activityEvents.push(event);
       },
     },
+    userDataService: createUserDataService(false),
     logger: silentLogger,
     backgroundTaskRunner: (task) => backgroundTasks.push(task),
   });
@@ -77,7 +90,8 @@ test("image handler types while generating, then uploads only a photo", async ()
     calls[0].text,
     /<blockquote expandable>A &lt;mysterious&gt; &amp; detailed castle<\/blockquote>/,
   );
-  assert.match(calls[0].text, /Your image should be ready in about 45 seconds\./);
+  assert.match(calls[0].text, /Gemma: Disabled/);
+  assert.match(calls[0].text, /Estimated generation time: about 20 seconds\./);
   assert.equal(calls[1].action, "typing");
   assert.match(calls[2].text, /^✅ Your image is ready!/);
   assert.match(calls[2].text, /📝 Full Prompt/);
@@ -110,9 +124,9 @@ test("image handler displays the actual enhanced prompt used by ComfyUI", async 
   const generationQueue = new GenerationQueue({ maxSize: 2, logger: silentLogger });
   const handler = createImageHandler({
     generationService: {
-      enhancementEnabled: true,
-      prepareRequest() {
-        return { prompt: "A long raw story", seed: 42 };
+      enhancementAvailable: true,
+      prepareRequest(_prompt, { useGemma }) {
+        return { prompt: "A long raw story", seed: 42, useGemma };
       },
       async generate(_request, { onStage }) {
         await onStage({ stage: "preparing_image", prompt: "A focused visual prompt" });
@@ -135,6 +149,7 @@ test("image handler displays the actual enhanced prompt used by ComfyUI", async 
     promptMaxLength: 1500,
     actionIntervalMs: 4000,
     activityLogService: { append: async (event) => activityEvents.push(event) },
+    userDataService: createUserDataService(true),
     logger: silentLogger,
     backgroundTaskRunner: (task) => backgroundTasks.push(task),
   });
@@ -160,6 +175,7 @@ test("image handler displays the actual enhanced prompt used by ComfyUI", async 
   await Promise.all(backgroundTasks);
 
   assert.match(edits.at(-1), /A focused visual prompt/);
+  assert.match(edits.at(-1), /Gemma: Enabled/);
   assert.doesNotMatch(edits.at(-1), /A long raw story/);
   const generatedEvent = activityEvents.find((event) => event.event === "image_generated");
   assert.equal(generatedEvent.originalPrompt, "A long raw story");
@@ -177,9 +193,9 @@ test("image handler returns after queueing without waiting for a long generation
   const generationQueue = new GenerationQueue({ maxSize: 2, logger: silentLogger });
   const handler = createImageHandler({
     generationService: {
-      enhancementEnabled: false,
-      prepareRequest(prompt) {
-        return { prompt, seed: 7 };
+      enhancementAvailable: false,
+      prepareRequest(prompt, { useGemma }) {
+        return { prompt, seed: 7, useGemma };
       },
       async generate() {
         return generationResult;
@@ -190,6 +206,7 @@ test("image handler returns after queueing without waiting for a long generation
     promptMaxLength: 3500,
     actionIntervalMs: 4000,
     activityLogService: { append: async () => undefined },
+    userDataService: createUserDataService(false),
     logger: silentLogger,
     backgroundTaskRunner: (task) => backgroundTasks.push(task),
   });
@@ -230,4 +247,40 @@ test("image handler returns after queueing without waiting for a long generation
 
   assert.equal(photoDelivered, true);
   assert.equal(generationQueue.size, 0);
+});
+
+test("image handler requires a saved mode before accepting prompts", async () => {
+  const replies = [];
+  const generationQueue = new GenerationQueue({ maxSize: 2, logger: silentLogger });
+  const handler = createImageHandler({
+    generationService: {
+      enhancementAvailable: true,
+      prepareRequest() {
+        throw new Error("A request must not be prepared before mode selection");
+      },
+    },
+    generationQueue,
+    generationSettings: GENERATION_SETTINGS,
+    promptMaxLength: 3500,
+    actionIntervalMs: 4000,
+    activityLogService: { append: async () => undefined },
+    userDataService: createUserDataService(null),
+    logger: silentLogger,
+  });
+  const context = {
+    update: { update_id: 100 },
+    message: { text: "A forest temple" },
+    from: { id: 123 },
+    chat: { id: 123 },
+    async reply(text) {
+      replies.push(text);
+    },
+  };
+
+  await handler(context);
+
+  assert.equal(generationQueue.size, 0);
+  assert.deepEqual(replies, [
+    "Please use /start and choose a generation mode before sending an image prompt.",
+  ]);
 });

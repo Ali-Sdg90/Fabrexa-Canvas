@@ -20,18 +20,28 @@ export class GenerationService {
     this.now = now;
   }
 
-  get enhancementEnabled() {
+  get enhancementAvailable() {
     return this.promptEnhancementService?.enabled === true;
   }
 
-  prepareRequest(rawPrompt) {
+  prepareRequest(rawPrompt, { useGemma = false } = {}) {
+    if (typeof useGemma !== "boolean") {
+      throw new TypeError("useGemma must be a boolean.");
+    }
     return Object.freeze({
       prompt: this.promptService.prepare(rawPrompt),
       seed: this.fixedSeed ?? this.seedGenerator(),
+      useGemma,
     });
   }
 
-  async generate({ prompt, seed }, { onStage = async () => undefined } = {}) {
+  async generate({ prompt, seed, useGemma = false }, { onStage = async () => undefined } = {}) {
+    if (useGemma && !this.enhancementAvailable) {
+      throw new PromptEnhancementError(
+        "Gemma prompt enhancement was requested but is disabled by the application configuration.",
+      );
+    }
+
     const startedAt = this.now();
     let promptUsed = prompt;
     let enhanced = false;
@@ -46,7 +56,7 @@ export class GenerationService {
     };
     let modelMetrics;
 
-    if (this.enhancementEnabled) {
+    if (useGemma) {
       await onStage({ stage: "preparing_scene", prompt });
       const releaseResult = await this.gpuHandoffService.prepareForLanguageModel();
       timings.comfyReleaseMs = releaseResult.durationMs;
@@ -93,6 +103,7 @@ export class GenerationService {
       originalPrompt: prompt,
       prompt: promptUsed,
       enhanced,
+      useGemma,
       fallbackUsed,
       modelMetrics,
       timings: Object.freeze(timings),
