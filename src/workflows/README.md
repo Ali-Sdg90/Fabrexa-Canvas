@@ -7,8 +7,8 @@ Keep the committed checkpoint input empty. Configure the actual local filename
 with `COMFYUI_CHECKPOINT_NAME` in the ignored `.env`; the bot injects it into the
 mapped checkpoint loader at runtime.
 
-Do not replace the existing SaveImage node or change the checkpoint, negative
-prompt, sampler, scheduler, resolution, optional CLIP skip, denoise, or VAE setup for the
-bot. Configure the exact positive-prompt, primary and additional seed, and final
-SaveImage node IDs in `.env`. The root README contains the full export and
-mapping instructions.
+Do not replace the existing `SaveImage` node or change the checkpoint, negative
+prompt, sampler, scheduler, resolution, optional CLIP skip, denoise, or VAE
+setup for the bot. Configure the exact positive-prompt, primary and additional
+seed, and final `SaveImage` node IDs in `.env`. See
+[`docs/setup.md`](../../docs/setup.md) for the export and mapping instructions.
